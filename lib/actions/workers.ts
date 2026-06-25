@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { getString, isEmail, isPhone } from "@/lib/validation";
 import type { FormState } from "@/lib/types";
 
@@ -35,7 +35,7 @@ export async function createWorker(
     };
   }
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { error } = await supabase.from("workers").insert({
     name,
     phone,

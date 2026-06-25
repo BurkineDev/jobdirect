@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminUser, isAdminEmail } from "@/lib/auth";
 import { getString } from "@/lib/validation";
 import {
@@ -73,7 +72,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   await assertAdmin();
   if (!TASK_STATUSES.includes(status)) throw new Error("Statut invalide.");
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("tasks")
     .update({ status })
@@ -93,7 +92,7 @@ export async function updateApplicationStatus(
   if (!APPLICATION_STATUSES.includes(status))
     throw new Error("Statut invalide.");
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("applications")
     .update({ status })
@@ -113,7 +112,7 @@ export async function addAdminNote(
 
   if (!note) return { status: "error", message: "La note est vide." };
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { error } = await supabase.from("admin_notes").insert({
     task_id: taskId || null,
     note,
@@ -126,7 +125,7 @@ export async function addAdminNote(
 
 export async function deleteAdminNote(noteId: string) {
   await assertAdmin();
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { error } = await supabase
     .from("admin_notes")
     .delete()

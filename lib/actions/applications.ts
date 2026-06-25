@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { getString, isEmail, isPhone } from "@/lib/validation";
 import type { FormState } from "@/lib/types";
 
@@ -32,32 +32,25 @@ export async function createApplication(
     };
   }
 
-  const supabase = createAdminClient();
+  const supabase = await createClient();
 
-  // La tâche doit exister et être active pour accepter des candidatures.
+  // La tâche doit être active pour accepter des candidatures.
+  // (La vue publique ne contient que les tâches actives.)
   const { data: task } = await supabase
-    .from("tasks")
-    .select("id, status")
+    .from("public_tasks")
+    .select("id")
     .eq("id", taskId)
-    .single();
+    .maybeSingle();
 
-  if (!task || task.status !== "active") {
+  if (!task) {
     return {
       status: "error",
       message: "Cette tâche n'accepte plus de candidatures.",
     };
   }
 
-  // Si un travailleur est déjà inscrit avec ce courriel, on relie la candidature.
-  const { data: worker } = await supabase
-    .from("workers")
-    .select("id")
-    .ilike("email", email)
-    .maybeSingle();
-
   const { error } = await supabase.from("applications").insert({
     task_id: taskId,
-    worker_id: worker?.id ?? null,
     name,
     phone,
     email,

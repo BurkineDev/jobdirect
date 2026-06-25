@@ -1,11 +1,13 @@
 import "server-only";
-import { createAdminClient } from "./supabase/admin";
+import { createClient } from "./supabase/server";
 import type { Application, Task, Worker, AdminNote } from "./types";
 
 /**
- * Lectures de données côté serveur via la clé service role.
- * Les lectures PUBLIQUES sélectionnent explicitement les colonnes non
- * sensibles (jamais les coordonnées du demandeur).
+ * Lectures de données côté serveur.
+ * - Lectures PUBLIQUES : via la vue `public_tasks` (colonnes non sensibles,
+ *   tâches actives uniquement) — accessible avec la clé publique.
+ * - Lectures ADMIN : sur les tables, autorisées par la RLS (`is_admin()`)
+ *   lorsque la requête s'exécute dans une session admin authentifiée.
  */
 
 const PUBLIC_TASK_COLUMNS =
@@ -28,11 +30,10 @@ export async function getActiveTasks(filters: {
   city?: string;
   category?: string;
 }): Promise<PublicTask[]> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   let query = supabase
-    .from("tasks")
+    .from("public_tasks")
     .select(PUBLIC_TASK_COLUMNS)
-    .eq("status", "active")
     .order("created_at", { ascending: false });
 
   if (filters.city) query = query.eq("city", filters.city);
@@ -47,12 +48,11 @@ export async function getActiveTasks(filters: {
 }
 
 export async function getActiveTask(id: string): Promise<PublicTask | null> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
-    .from("tasks")
+    .from("public_tasks")
     .select(PUBLIC_TASK_COLUMNS)
     .eq("id", id)
-    .eq("status", "active")
     .maybeSingle();
   if (error) {
     console.error("getActiveTask error", error);
@@ -66,7 +66,7 @@ export async function getActiveTask(id: string): Promise<PublicTask | null> {
 export type TaskWithCount = Task & { application_count: number };
 
 export async function getAllTasks(): Promise<TaskWithCount[]> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("tasks")
     .select("*, applications(count)")
@@ -87,7 +87,7 @@ export async function getAllTasks(): Promise<TaskWithCount[]> {
 }
 
 export async function getTaskById(id: string): Promise<Task | null> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("tasks")
     .select("*")
@@ -97,7 +97,7 @@ export async function getTaskById(id: string): Promise<Task | null> {
 }
 
 export async function getAllWorkers(): Promise<Worker[]> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("workers")
     .select("*")
@@ -114,7 +114,7 @@ export type ApplicationWithTask = Application & {
 };
 
 export async function getAllApplications(): Promise<ApplicationWithTask[]> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("applications")
     .select("*, task:tasks(id, title, city, category)")
@@ -127,7 +127,7 @@ export async function getAllApplications(): Promise<ApplicationWithTask[]> {
 }
 
 export async function getAdminNotes(taskId: string): Promise<AdminNote[]> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("admin_notes")
     .select("*")
@@ -138,7 +138,7 @@ export async function getAdminNotes(taskId: string): Promise<AdminNote[]> {
 
 /** Toutes les notes, regroupées par identifiant de tâche. */
 export async function getNotesByTask(): Promise<Map<string, AdminNote[]>> {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data } = await supabase
     .from("admin_notes")
     .select("*")
@@ -155,7 +155,7 @@ export async function getNotesByTask(): Promise<Map<string, AdminNote[]>> {
 }
 
 export async function getDashboardStats() {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const [tasks, workers, applications] = await Promise.all([
     supabase.from("tasks").select("status"),
     supabase.from("workers").select("id", { count: "exact", head: true }),

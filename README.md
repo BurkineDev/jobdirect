@@ -64,15 +64,22 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 
 ### Modèle d'accès aux données (important)
 
-Pour un MVP simple **et** sécurisé, **tout l'accès aux données passe par le serveur** :
+L'application n'utilise **que la clé publique** Supabase. La sécurité repose
+sur la **RLS** (Row Level Security) — aucune clé secrète « service role » n'est
+nécessaire (plus simple à déployer, moins de secrets à gérer).
 
-- La **RLS est activée** sur toutes les tables, **sans politique permissive** → la clé publique `anon` ne peut rien lire/écrire directement.
-- Le serveur (Server Actions / Server Components) utilise la clé **`service role`** pour :
-  - valider les entrées des formulaires avant insertion ;
-  - ne renvoyer au public **que les colonnes non sensibles** (jamais les coordonnées privées d'un demandeur).
-- L'authentification admin utilise la clé `anon` + cookies (`@supabase/ssr`).
+- **Public** : insertions de formulaires autorisées par la RLS (les tâches sont
+  forcées au statut `pending`). La lecture des tâches passe par la vue
+  `public_tasks` qui n'expose **que les colonnes non sensibles** des tâches
+  **actives** — jamais les coordonnées privées du demandeur.
+- **Admin** : accès complet via la fonction SQL `is_admin()` (le courriel du JWT
+  doit figurer dans la table `public.admins`), lorsqu'une session admin est
+  authentifiée par Supabase Auth (clé `anon` + cookies via `@supabase/ssr`).
+- Toutes les écritures passent par des **Server Actions** qui valident les
+  entrées avant insertion.
 
-> ⚠️ La clé `service role` ne doit **jamais** être exposée au navigateur. Elle n'a pas de préfixe `NEXT_PUBLIC_` et le fichier `lib/supabase/admin.ts` importe `server-only`.
+> 🔒 Voir [`supabase/schema.sql`](supabase/schema.sql) pour les politiques RLS,
+> la vue publique et la fonction `is_admin()`.
 
 ### Structure du projet
 
@@ -96,7 +103,7 @@ components/
   admin/                     Composants de l'espace admin
   site/                      Header, footer, logo
 lib/
-  supabase/                  Clients : client / server / admin / middleware
+  supabase/                  Clients : client (navigateur) / server / middleware
   actions/                   Server Actions (tasks, workers, applications, admin)
   queries.ts                 Lectures de données (serveur)
   constants.ts               Villes, catégories, statuts (FR)
@@ -132,12 +139,13 @@ Avant que les pages `/taches` et `/admin` ne fonctionnent, il faut **configurer 
 
 Toutes les variables sont définies dans `.env.example`.
 
-| Variable                        | Public ?   | Description                                                                |
-| ------------------------------- | ---------- | ------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | ✅ oui     | URL du projet Supabase (ex. `https://xxxx.supabase.co`).                  |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ oui     | Clé publique « anon » (auth admin côté client).                          |
-| `SUPABASE_SERVICE_ROLE_KEY`     | ❌ **non** | Clé secrète « service role ». **Serveur uniquement.** Contourne la RLS.   |
-| `ADMIN_EMAILS`                  | ❌ non     | Courriels admin autorisés, séparés par des virgules (ex. `you@mail.com`). |
+| Variable                        | Public ? | Description                                                                |
+| ------------------------------- | -------- | ------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | ✅ oui   | URL du projet Supabase (ex. `https://xxxx.supabase.co`).                  |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ oui   | Clé publique « anon » / « publishable ».                                 |
+| `ADMIN_EMAILS`                  | ❌ non   | Courriels admin autorisés, séparés par des virgules (ex. `you@mail.com`). |
+
+> Aucune clé secrète « service role » n'est requise — la sécurité repose sur la RLS.
 
 ---
 
@@ -152,7 +160,8 @@ Toutes les variables sont définies dans `.env.example`.
 
 1. Ouvrez **SQL Editor → New query**.
 2. Copiez tout le contenu de [`supabase/schema.sql`](supabase/schema.sql) et exécutez-le (**Run**).
-3. Cela crée les tables `tasks`, `workers`, `applications`, `admin_notes`, les index, le trigger `updated_at` et active la RLS.
+3. Cela crée les tables, index, trigger, la **vue `public_tasks`**, la table
+   `public.admins`, la fonction `is_admin()` et toutes les **politiques RLS**.
 
 > 💡 Pour tester rapidement, décommentez le bloc « jeu de données de démonstration » à la fin du fichier SQL.
 
@@ -161,24 +170,27 @@ Toutes les variables sont définies dans `.env.example`.
 Dans **Project Settings → API** (et **Data API** pour l'URL) :
 
 - `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`
-- clé **`anon` / `public`** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- clé **`service_role` / `secret`** → `SUPABASE_SERVICE_ROLE_KEY`
+- clé **`anon` / `public`** (ou **`publishable`**) → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 ### 4. Créer l'utilisateur admin
 
 1. **Authentication → Users → Add user → Create new user.**
 2. Saisissez un courriel + mot de passe et cochez **Auto Confirm User** (sinon confirmez le courriel).
-3. Ajoutez ce même courriel dans `ADMIN_EMAILS`.
-4. Connectez-vous sur `/admin/login`.
+3. Déclarez cet admin dans la base :
+   ```sql
+   insert into public.admins (email) values ('votre@courriel.com') on conflict do nothing;
+   ```
+4. Ajoutez ce même courriel dans `ADMIN_EMAILS` (`.env.local`).
+5. Connectez-vous sur `/admin/login`.
 
-> Seuls les comptes dont le courriel figure dans `ADMIN_EMAILS` peuvent accéder à `/admin` — un simple compte Supabase ne suffit pas.
+> Un admin doit figurer **à la fois** dans Supabase Auth, dans la table
+> `public.admins` (autorisation RLS) et dans `ADMIN_EMAILS` (garde applicative).
 
 ### 5. Remplir `.env.local`
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ADMIN_EMAILS=admin@jobdirect.ca
 ```
 
@@ -191,9 +203,8 @@ Relancez `npm run dev`.
 1. Poussez le code sur un dépôt GitHub/GitLab/Bitbucket.
 2. Sur [vercel.com](https://vercel.com) : **Add New → Project** et importez le dépôt.
    - Framework détecté automatiquement : **Next.js**. Aucune configuration de build particulière requise.
-3. Dans **Settings → Environment Variables**, ajoutez les 4 variables ci-dessus
+3. Dans **Settings → Environment Variables**, ajoutez les 3 variables ci-dessus
    (pour les environnements **Production**, **Preview** et **Development**).
-   - ⚠️ `SUPABASE_SERVICE_ROLE_KEY` : ne **pas** la préfixer `NEXT_PUBLIC_`.
 4. **Deploy**.
 5. (Optionnel) **Settings → Domains** : branchez votre domaine (ex. `jobdirect.ca`)
    et mettez à jour `metadataBase` dans `app/layout.tsx`.
@@ -214,9 +225,9 @@ vercel --prod     # déploiement production
 
 ### Configuration
 
-- [ ] Les 4 variables d'environnement sont définies (local **et** Vercel).
+- [ ] Les 3 variables d'environnement sont définies (local **et** Vercel).
 - [ ] `supabase/schema.sql` a été exécuté sans erreur.
-- [ ] Un utilisateur admin existe dans Supabase **et** son courriel est dans `ADMIN_EMAILS`.
+- [ ] L'admin existe dans Supabase Auth, dans `public.admins` **et** dans `ADMIN_EMAILS`.
 - [ ] `npm run build` réussit sans erreur ni avertissement.
 
 ### Parcours public
@@ -246,7 +257,7 @@ vercel --prod     # déploiement production
 
 - [ ] Affichage correct sur mobile (menu, formulaires, cartes).
 - [ ] Aucune erreur dans la console du navigateur.
-- [ ] La clé `service role` n'apparaît **pas** dans le code client (onglet réseau / sources).
+- [ ] Avec la clé publique seule, impossible de lire la table `tasks` (coordonnées privées protégées par la RLS).
 
 ---
 

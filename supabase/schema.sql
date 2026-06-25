@@ -4,11 +4,13 @@
 -- À exécuter dans : Supabase Dashboard > SQL Editor > New query.
 -- Idempotent : peut être ré-exécuté sans erreur.
 --
--- Sécurité (MVP) : RLS est ACTIVÉ sur toutes les tables SANS politique
--- permissive. Concrètement, la clé publique « anon » ne peut RIEN lire ni
--- écrire directement. Tout l'accès passe par le serveur Next.js via la clé
--- « service role » (Server Actions / Server Components), qui valide les
--- entrées et ne renvoie au public que les colonnes non sensibles.
+-- Sécurité : RLS est ACTIVÉ sur toutes les tables. L'application n'utilise que
+-- la clé PUBLIQUE (anon) ; la RLS est la frontière de sécurité.
+--   • Public : insertions de formulaires autorisées ; lecture des tâches via la
+--     vue `public_tasks` (colonnes non sensibles, tâches actives uniquement).
+--   • Admin  : accès complet via la fonction `is_admin()` (courriel du JWT
+--     présent dans la table `public.admins`), lorsqu'une session admin est
+--     authentifiée par Supabase Auth.
 -- ============================================================================
 
 create extension if not exists pgcrypto;
@@ -107,13 +109,81 @@ create table if not exists public.admin_notes (
 create index if not exists admin_notes_task_id_idx on public.admin_notes (task_id);
 
 -- ----------------------------------------------------------------------------
--- Row Level Security : activé partout, aucune politique permissive.
--- => Accès uniquement via la clé service role (côté serveur).
+-- Vue publique : colonnes non sensibles des tâches actives uniquement.
+-- (Vue « security definer » par défaut → contourne la RLS de tasks et
+--  n'expose JAMAIS les coordonnées privées du demandeur.)
+-- ----------------------------------------------------------------------------
+create or replace view public.public_tasks as
+select id, title, description, city, category, desired_date, budget_estimate,
+       status, created_at
+from public.tasks
+where status = 'active';
+
+grant select on public.public_tasks to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Administrateurs : source de vérité (DB) pour l'autorisation RLS.
+-- ----------------------------------------------------------------------------
+create table if not exists public.admins (
+  email text primary key
+);
+alter table public.admins enable row level security; -- aucune politique = inaccessible sauf SQL direct
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.admins a
+    where a.email = (auth.jwt() ->> 'email')
+  );
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Row Level Security : activée partout, avec politiques.
 -- ----------------------------------------------------------------------------
 alter table public.tasks        enable row level security;
 alter table public.workers      enable row level security;
 alter table public.applications enable row level security;
 alter table public.admin_notes  enable row level security;
+
+-- tasks : insertion publique (forcée 'pending') + accès total admin
+drop policy if exists tasks_insert_public on public.tasks;
+create policy tasks_insert_public on public.tasks
+  for insert to anon, authenticated with check (status = 'pending');
+drop policy if exists tasks_admin_all on public.tasks;
+create policy tasks_admin_all on public.tasks
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- workers : inscription publique + accès total admin
+drop policy if exists workers_insert_public on public.workers;
+create policy workers_insert_public on public.workers
+  for insert to anon, authenticated with check (true);
+drop policy if exists workers_admin_all on public.workers;
+create policy workers_admin_all on public.workers
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- applications : candidature publique + accès total admin
+drop policy if exists applications_insert_public on public.applications;
+create policy applications_insert_public on public.applications
+  for insert to anon, authenticated with check (true);
+drop policy if exists applications_admin_all on public.applications;
+create policy applications_admin_all on public.applications
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- admin_notes : réservé admin
+drop policy if exists admin_notes_admin_all on public.admin_notes;
+create policy admin_notes_admin_all on public.admin_notes
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- ----------------------------------------------------------------------------
+-- Ajoutez vos administrateurs ici (doivent aussi exister dans Supabase Auth) :
+-- insert into public.admins (email) values ('admin@jobdirect.ca') on conflict do nothing;
 
 -- ============================================================================
 -- (Optionnel) Jeu de données de démonstration — décommentez pour tester.
