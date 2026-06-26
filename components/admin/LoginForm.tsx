@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { signIn } from "@/lib/actions/admin";
 import { Field, Input } from "@/components/ui/Field";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -11,6 +11,8 @@ const initial: FormState = { status: "idle" };
 
 export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const [state, formAction] = useActionState(signIn, initial);
+  // Contrôlé pour conserver le courriel après un échec de connexion.
+  const [email, setEmail] = useState("");
 
   return (
     <form action={formAction} className="space-y-5" noValidate>
@@ -23,6 +25,8 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
           name="email"
           type="email"
           autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           required
         />
       </Field>

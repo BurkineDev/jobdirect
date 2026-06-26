@@ -1,19 +1,64 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState, useTransition } from "react";
 import { createWorker } from "@/lib/actions/workers";
 import { CITIES } from "@/lib/constants";
+import { isEmail, isPhone } from "@/lib/validation";
+import { useFormValidation, type Validators } from "@/lib/useFormValidation";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { SubmitButton } from "@/components/ui/SubmitButton";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { FormAlert } from "@/components/ui/FormAlert";
-import { ButtonLink } from "@/components/ui/Button";
 import type { FormState } from "@/lib/types";
 
-const initial: FormState = { status: "idle" };
+type Values = {
+  name: string;
+  phone: string;
+  email: string;
+  city: string;
+  skills: string;
+  availability: string;
+  experience: string;
+};
+
+const initialValues: Values = {
+  name: "",
+  phone: "",
+  email: "",
+  city: "",
+  skills: "",
+  availability: "",
+  experience: "",
+};
+
+const validators: Validators<Values> = {
+  name: (v) => (!v.trim() ? "Votre nom est requis." : undefined),
+  phone: (v) => (!isPhone(v) ? "Numéro de téléphone invalide." : undefined),
+  email: (v) => (!isEmail(v) ? "Courriel invalide." : undefined),
+  city: (v) => (!v ? "La ville est requise." : undefined),
+  skills: (v) => (!v.trim() ? "Indiquez vos compétences." : undefined),
+  availability: (v) => (!v.trim() ? "Indiquez vos disponibilités." : undefined),
+};
 
 export function WorkerForm() {
-  const [state, formAction] = useActionState(createWorker, initial);
-  const errors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
+  const { values, errors, setErrors, handleChange, validateAll } =
+    useFormValidation(initialValues, validators);
+  const [state, setState] = useState<FormState>({ status: "idle" });
+  const [pending, startTransition] = useTransition();
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateAll()) {
+      setState({ status: "error", message: "Veuillez corriger les champs indiqués." });
+      return;
+    }
+    const fd = new FormData();
+    Object.entries(values).forEach(([k, v]) => fd.append(k, v));
+    startTransition(async () => {
+      const res = await createWorker({ status: "idle" }, fd);
+      setState(res);
+      if (res.status === "error" && res.fieldErrors) setErrors(res.fieldErrors);
+    });
+  }
 
   if (state.status === "success") {
     return (
@@ -30,11 +75,17 @@ export function WorkerForm() {
   }
 
   return (
-    <form action={formAction} className="space-y-6" noValidate>
+    <form onSubmit={onSubmit} className="space-y-6" noValidate>
       <FormAlert state={state} />
 
       <Field label="Nom complet" htmlFor="name" required error={errors.name}>
-        <Input id="name" name="name" autoComplete="name" required />
+        <Input
+          id="name"
+          name="name"
+          autoComplete="name"
+          value={values.name}
+          onChange={handleChange("name")}
+        />
       </Field>
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -45,7 +96,8 @@ export function WorkerForm() {
             type="tel"
             autoComplete="tel"
             placeholder="514-555-0123"
-            required
+            value={values.phone}
+            onChange={handleChange("phone")}
           />
         </Field>
 
@@ -56,13 +108,19 @@ export function WorkerForm() {
             type="email"
             autoComplete="email"
             placeholder="vous@exemple.com"
-            required
+            value={values.email}
+            onChange={handleChange("email")}
           />
         </Field>
       </div>
 
       <Field label="Ville" htmlFor="city" required error={errors.city}>
-        <Select id="city" name="city" defaultValue="" required>
+        <Select
+          id="city"
+          name="city"
+          value={values.city}
+          onChange={handleChange("city")}
+        >
           <option value="" disabled>
             Choisir une ville
           </option>
@@ -85,7 +143,8 @@ export function WorkerForm() {
           id="skills"
           name="skills"
           placeholder="Décrivez ce que vous savez faire"
-          required
+          value={values.skills}
+          onChange={handleChange("skills")}
         />
       </Field>
 
@@ -100,7 +159,8 @@ export function WorkerForm() {
           id="availability"
           name="availability"
           placeholder="Quand êtes-vous disponible ?"
-          required
+          value={values.availability}
+          onChange={handleChange("availability")}
         />
       </Field>
 
@@ -114,12 +174,14 @@ export function WorkerForm() {
           id="experience"
           name="experience"
           placeholder="Ex. : 3 ans en déménagement résidentiel…"
+          value={values.experience}
+          onChange={handleChange("experience")}
         />
       </Field>
 
-      <SubmitButton size="lg" pendingText="Inscription en cours…">
-        M&apos;inscrire
-      </SubmitButton>
+      <Button type="submit" size="lg" disabled={pending}>
+        {pending ? "Inscription en cours…" : "M'inscrire"}
+      </Button>
     </form>
   );
 }
