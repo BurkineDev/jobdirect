@@ -7,6 +7,7 @@ import { signOut } from "@/lib/actions/admin";
 
 const links = [
   { href: "/admin", label: "Tâches" },
+  { href: "/admin/operations", label: "Opérations" },
   { href: "/admin/travailleurs", label: "Travailleurs" },
   { href: "/admin/candidatures", label: "Candidatures" },
 ];

@@ -158,6 +158,7 @@ create table if not exists public.profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   role         text not null check (role in ('employer','worker')),
   full_name    text not null default '',
+  email        text,
   phone        text,
   city         text,
   skills       text,
@@ -192,12 +193,13 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, role, full_name, phone, city, skills, availability, experience)
+  insert into public.profiles (id, role, full_name, email, phone, city, skills, availability, experience)
   values (
     new.id,
     case when new.raw_user_meta_data->>'role' in ('employer','worker')
          then new.raw_user_meta_data->>'role' else 'worker' end,
     coalesce(new.raw_user_meta_data->>'full_name',''),
+    new.email,
     new.raw_user_meta_data->>'phone',
     new.raw_user_meta_data->>'city',
     new.raw_user_meta_data->>'skills',
@@ -213,6 +215,52 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ----------------------------------------------------------------------------
+-- TABLE : commissions (facturation de la mise en relation)
+-- Créée automatiquement quand une tâche passe au statut « assigned ».
+-- Payée hors plateforme (virement Interac) ; l'admin marque « paid ».
+-- ----------------------------------------------------------------------------
+create table if not exists public.commissions (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid not null unique references public.tasks (id) on delete cascade,
+  amount     numeric(10, 2) not null default 15.00,
+  status     text not null default 'pending' check (status in ('pending','paid')),
+  paid_at    timestamptz,
+  note       text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.commissions enable row level security;
+
+drop policy if exists commissions_admin_all on public.commissions;
+create policy commissions_admin_all on public.commissions
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- Suggestion automatique : max(10 % du budget estimé, 15 $).
+create or replace function public.handle_task_assigned()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status = 'assigned' and (old.status is distinct from 'assigned') then
+    insert into public.commissions (task_id, amount)
+    values (
+      new.id,
+      greatest(coalesce(round(new.budget_estimate * 0.10, 2), 15.00), 15.00)
+    )
+    on conflict (task_id) do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tasks_on_assigned on public.tasks;
+create trigger tasks_on_assigned
+  after update on public.tasks
+  for each row execute function public.handle_task_assigned();
 
 -- ----------------------------------------------------------------------------
 -- Fonctions SECURITY DEFINER : vérifications croisées tasks ↔ applications

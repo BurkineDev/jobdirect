@@ -80,6 +80,7 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin");
+  revalidatePath("/admin/operations");
   revalidatePath("/taches");
   revalidatePath(`/taches/${taskId}`);
 }
@@ -100,6 +101,48 @@ export async function updateApplicationStatus(
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/candidatures");
+}
+
+// --- Commissions (mise en relation) -----------------------------------------
+
+/** Marque une commission comme payée (Interac reçu), avec montant final. */
+export async function markCommissionPaid(commissionId: string, amount: number) {
+  await assertAdmin();
+  if (!Number.isFinite(amount) || amount < 0)
+    throw new Error("Montant invalide.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("commissions")
+    .update({ amount, status: "paid", paid_at: new Date().toISOString() })
+    .eq("id", commissionId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/operations");
+}
+
+/** Repasse une commission en attente (erreur de saisie). */
+export async function reopenCommission(commissionId: string) {
+  await assertAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("commissions")
+    .update({ status: "pending", paid_at: null })
+    .eq("id", commissionId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/operations");
+}
+
+/** Supprime une commission (ex. assignation annulée). */
+export async function deleteCommission(commissionId: string) {
+  await assertAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("commissions")
+    .delete()
+    .eq("id", commissionId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/operations");
 }
 
 export async function addAdminNote(

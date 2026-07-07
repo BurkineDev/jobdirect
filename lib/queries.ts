@@ -1,6 +1,13 @@
 import "server-only";
 import { createClient } from "./supabase/server";
-import type { Application, Task, Worker, AdminNote } from "./types";
+import type {
+  Application,
+  Task,
+  Worker,
+  AdminNote,
+  Commission,
+  Profile,
+} from "./types";
 
 /**
  * Lectures de données côté serveur.
@@ -194,6 +201,84 @@ export async function getNotesByTask(): Promise<Map<string, AdminNote[]>> {
     map.set(note.task_id, list);
   }
   return map;
+}
+
+export type CommissionWithTask = Commission & {
+  task: Pick<
+    Task,
+    "id" | "title" | "city" | "category" | "status" | "contact_name" | "contact_phone" | "budget_estimate"
+  > | null;
+};
+
+/** Commissions (mise en relation), avec la tâche associée. Réservé admin. */
+export async function getCommissions(): Promise<CommissionWithTask[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("commissions")
+    .select(
+      "*, task:tasks(id, title, city, category, status, contact_name, contact_phone, budget_estimate)",
+    )
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("getCommissions error", error);
+    return [];
+  }
+  return (data ?? []) as CommissionWithTask[];
+}
+
+/** Candidat au matching : travailleur inscrit (formulaire) ou compte travailleur. */
+export type WorkerCandidate = {
+  key: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  city: string | null;
+  skills: string | null;
+  availability: string | null;
+  source: "formulaire" | "compte";
+};
+
+/** Réunit les deux viviers de travailleurs (table workers + profils avec compte). */
+export async function getWorkerPool(): Promise<WorkerCandidate[]> {
+  const supabase = await createClient();
+  const [workersRes, profilesRes] = await Promise.all([
+    supabase.from("workers").select("*"),
+    supabase.from("profiles").select("*").eq("role", "worker"),
+  ]);
+
+  const fromForms: WorkerCandidate[] = ((workersRes.data ?? []) as Worker[]).map(
+    (w) => ({
+      key: `w_${w.id}`,
+      name: w.name,
+      phone: w.phone,
+      email: w.email,
+      city: w.city,
+      skills: w.skills,
+      availability: w.availability,
+      source: "formulaire",
+    }),
+  );
+  const fromAccounts: WorkerCandidate[] = (
+    (profilesRes.data ?? []) as Profile[]
+  ).map((p) => ({
+    key: `p_${p.id}`,
+    name: p.full_name,
+    phone: p.phone,
+    email: p.email,
+    city: p.city,
+    skills: p.skills,
+    availability: p.availability,
+    source: "compte",
+  }));
+
+  // Dédoublonnage simple par courriel (un compte remplace une fiche formulaire).
+  const seen = new Set(
+    fromAccounts.map((c) => c.email?.toLowerCase()).filter(Boolean),
+  );
+  return [
+    ...fromAccounts,
+    ...fromForms.filter((c) => !seen.has(c.email?.toLowerCase() ?? "")),
+  ];
 }
 
 export async function getDashboardStats() {

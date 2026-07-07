@@ -59,6 +59,7 @@ export interface Profile {
   id: string;
   role: UserRole;
   full_name: string;
+  email: string | null;
   phone: string | null;
   city: string | null;
   skills: string | null;
@@ -66,6 +67,19 @@ export interface Profile {
   experience: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type CommissionStatus = "pending" | "paid";
+
+/** Commission de mise en relation (payée hors plateforme, ex. Interac). */
+export interface Commission {
+  id: string;
+  task_id: string;
+  amount: number;
+  status: CommissionStatus;
+  paid_at: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 /** Profil + courriel du compte auth associé. */
