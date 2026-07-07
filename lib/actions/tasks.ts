@@ -49,6 +49,11 @@ export async function createTask(
   }
 
   const supabase = await createClient();
+  // Si un employeur est connecté, on relie la tâche à son compte.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { error } = await supabase.from("tasks").insert({
     title,
     description,
@@ -60,6 +65,7 @@ export async function createTask(
     contact_phone: contactPhone,
     contact_email: contactEmail,
     status: "pending",
+    user_id: user?.id ?? null,
   });
 
   if (error) {

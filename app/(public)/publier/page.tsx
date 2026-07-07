@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { TaskForm } from "@/components/forms/TaskForm";
+import { getCurrentProfile } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Publier une tâche",
@@ -7,7 +8,16 @@ export const metadata: Metadata = {
     "Publiez gratuitement une tâche ponctuelle et trouvez une personne disponible près de chez vous.",
 };
 
-export default function PublierPage() {
+export default async function PublierPage() {
+  const profile = await getCurrentProfile();
+  const defaults = profile
+    ? {
+        contact_name: profile.full_name,
+        contact_phone: profile.phone ?? "",
+        contact_email: profile.email,
+      }
+    : undefined;
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
       <header className="mb-8">
@@ -21,7 +31,7 @@ export default function PublierPage() {
       </header>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8">
-        <TaskForm />
+        <TaskForm defaults={defaults} />
       </div>
     </div>
   );

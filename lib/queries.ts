@@ -61,6 +61,48 @@ export async function getActiveTask(id: string): Promise<PublicTask | null> {
   return (data as PublicTask) ?? null;
 }
 
+// --- Lectures COMPTE utilisateur (via la session authentifiée + RLS) --------
+
+export type TaskWithApplications = Task & { applications: Application[] };
+
+/** Tâches publiées par l'employeur connecté, avec leurs candidatures. */
+export async function getMyTasksWithApplications(
+  userId: string,
+): Promise<TaskWithApplications[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*, applications(*)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("getMyTasksWithApplications error", error);
+    return [];
+  }
+  return (data ?? []) as TaskWithApplications[];
+}
+
+export type MyApplication = Application & {
+  task: Pick<Task, "id" | "title" | "city" | "category" | "status"> | null;
+};
+
+/** Candidatures envoyées par le travailleur connecté. */
+export async function getMyApplications(
+  userId: string,
+): Promise<MyApplication[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("applications")
+    .select("*, task:tasks(id, title, city, category, status)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("getMyApplications error", error);
+    return [];
+  }
+  return (data ?? []) as MyApplication[];
+}
+
 // --- Lectures ADMIN (toutes les colonnes) ----------------------------------
 
 export type TaskWithCount = Task & { application_count: number };

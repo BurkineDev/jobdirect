@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
+import { AccountMenu } from "./AccountMenu";
 import { ButtonLink } from "@/components/ui/Button";
+import { signOutUser } from "@/lib/actions/auth";
+import type { SessionProfile } from "@/lib/types";
 
 const navLinks = [
   { href: "/taches", label: "Parcourir les tâches" },
   { href: "/travailleur", label: "Je cherche du travail" },
 ];
 
-export function Header() {
+export function Header({ profile }: { profile?: SessionProfile | null }) {
   return (
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
@@ -27,6 +30,16 @@ export function Header() {
           <ButtonLink href="/publier" size="sm" className="ml-1">
             Publier une tâche
           </ButtonLink>
+          {profile ? (
+            <AccountMenu profile={profile} />
+          ) : (
+            <Link
+              href="/connexion"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Connexion
+            </Link>
+          )}
         </nav>
 
         {/* Navigation mobile — disclosure natif, sans JS */}
@@ -59,9 +72,45 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
-            <ButtonLink href="/publier" className="mt-1 w-full">
+            <ButtonLink href="/publier" className="my-1 w-full">
               Publier une tâche
             </ButtonLink>
+
+            <div className="mt-1 border-t border-gray-100 pt-1">
+              {profile ? (
+                <>
+                  <Link
+                    href="/mon-compte"
+                    className="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Mon tableau de bord
+                  </Link>
+                  <form action={signOutUser}>
+                    <button
+                      type="submit"
+                      className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-gray-100"
+                    >
+                      Déconnexion
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/connexion"
+                    className="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Connexion
+                  </Link>
+                  <Link
+                    href="/inscription"
+                    className="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    S&apos;inscrire
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         </details>
       </div>

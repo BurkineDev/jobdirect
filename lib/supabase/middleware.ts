@@ -43,22 +43,32 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isLoginRoute = pathname === "/admin/login";
-  const admin = isAdmin(user?.email);
 
-  // Bloque l'accès aux pages admin si l'utilisateur n'est pas autorisé.
-  if (!isLoginRoute && !admin) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/admin/login";
-    if (pathname !== "/admin") url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+  // --- Espace admin ---------------------------------------------------------
+  if (pathname.startsWith("/admin")) {
+    const isLoginRoute = pathname === "/admin/login";
+    const admin = isAdmin(user?.email);
+
+    if (!isLoginRoute && !admin) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin/login";
+      if (pathname !== "/admin") url.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(url);
+    }
+    if (isLoginRoute && admin) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
-  // Déjà connecté en tant qu'admin : on saute la page de login.
-  if (isLoginRoute && admin) {
+  // --- Espace compte utilisateur -------------------------------------------
+  if (pathname.startsWith("/mon-compte") && !user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin";
+    url.pathname = "/connexion";
     url.search = "";
+    url.searchParams.set("redirect", pathname);
     return NextResponse.redirect(url);
   }
 

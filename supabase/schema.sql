@@ -45,6 +45,8 @@ create table if not exists public.tasks (
   contact_email   text not null,
   status          text not null default 'pending'
                     check (status in ('pending','active','assigned','completed','cancelled')),
+  -- Compte employeur associé (NULL = tâche soumise sans compte)
+  user_id         uuid references auth.users (id) on delete set null,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -53,6 +55,7 @@ create index if not exists tasks_status_idx     on public.tasks (status);
 create index if not exists tasks_city_idx        on public.tasks (city);
 create index if not exists tasks_category_idx    on public.tasks (category);
 create index if not exists tasks_created_at_idx  on public.tasks (created_at desc);
+create index if not exists tasks_user_id_idx     on public.tasks (user_id);
 
 drop trigger if exists tasks_set_updated_at on public.tasks;
 create trigger tasks_set_updated_at
@@ -90,11 +93,14 @@ create table if not exists public.applications (
   message    text,
   status     text not null default 'new'
                check (status in ('new','reviewed','contacted','rejected')),
+  -- Compte travailleur associé (NULL = candidature envoyée sans compte)
+  user_id    uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 create index if not exists applications_task_id_idx     on public.applications (task_id);
 create index if not exists applications_created_at_idx   on public.applications (created_at desc);
+create index if not exists applications_user_id_idx      on public.applications (user_id);
 
 -- ----------------------------------------------------------------------------
 -- TABLE : admin_notes (notes internes de l'équipe admin)
@@ -145,6 +151,103 @@ $$;
 grant execute on function public.is_admin() to authenticated;
 
 -- ----------------------------------------------------------------------------
+-- TABLE : profiles (comptes utilisateurs — employeur ou travailleur)
+-- 1 ligne par compte Supabase Auth, créée automatiquement à l'inscription.
+-- ----------------------------------------------------------------------------
+create table if not exists public.profiles (
+  id           uuid primary key references auth.users (id) on delete cascade,
+  role         text not null check (role in ('employer','worker')),
+  full_name    text not null default '',
+  phone        text,
+  city         text,
+  skills       text,
+  availability text,
+  experience   text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+drop trigger if exists profiles_set_updated_at on public.profiles;
+create trigger profiles_set_updated_at
+  before update on public.profiles
+  for each row execute function set_updated_at();
+
+drop policy if exists profiles_select_own on public.profiles;
+create policy profiles_select_own on public.profiles
+  for select to authenticated using (id = auth.uid());
+drop policy if exists profiles_update_own on public.profiles;
+create policy profiles_update_own on public.profiles
+  for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+drop policy if exists profiles_admin_all on public.profiles;
+create policy profiles_admin_all on public.profiles
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- Création automatique du profil à l'inscription (métadonnées du signUp).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, role, full_name, phone, city, skills, availability, experience)
+  values (
+    new.id,
+    case when new.raw_user_meta_data->>'role' in ('employer','worker')
+         then new.raw_user_meta_data->>'role' else 'worker' end,
+    coalesce(new.raw_user_meta_data->>'full_name',''),
+    new.raw_user_meta_data->>'phone',
+    new.raw_user_meta_data->>'city',
+    new.raw_user_meta_data->>'skills',
+    new.raw_user_meta_data->>'availability',
+    new.raw_user_meta_data->>'experience'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ----------------------------------------------------------------------------
+-- Fonctions SECURITY DEFINER : vérifications croisées tasks ↔ applications
+-- sans déclencher la RLS (évite la récursion infinie entre politiques).
+-- ----------------------------------------------------------------------------
+create or replace function public.user_owns_task(p_task_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.tasks
+    where id = p_task_id and user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.user_applied_to_task(p_task_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.applications
+    where task_id = p_task_id and user_id = auth.uid()
+  );
+$$;
+
+grant execute on function public.user_owns_task(uuid) to authenticated;
+grant execute on function public.user_applied_to_task(uuid) to authenticated;
+
+-- ----------------------------------------------------------------------------
 -- Row Level Security : activée partout, avec politiques.
 -- ----------------------------------------------------------------------------
 alter table public.tasks        enable row level security;
@@ -152,10 +255,18 @@ alter table public.workers      enable row level security;
 alter table public.applications enable row level security;
 alter table public.admin_notes  enable row level security;
 
--- tasks : insertion publique (forcée 'pending') + accès total admin
+-- tasks : insertion publique (forcée 'pending', sans usurper un autre compte),
+-- lecture de SES tâches + des tâches où l'on a postulé, accès total admin.
 drop policy if exists tasks_insert_public on public.tasks;
 create policy tasks_insert_public on public.tasks
-  for insert to anon, authenticated with check (status = 'pending');
+  for insert to anon, authenticated
+  with check (status = 'pending' and (user_id is null or user_id = auth.uid()));
+drop policy if exists tasks_select_own on public.tasks;
+create policy tasks_select_own on public.tasks
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists tasks_select_applied on public.tasks;
+create policy tasks_select_applied on public.tasks
+  for select to authenticated using (public.user_applied_to_task(id));
 drop policy if exists tasks_admin_all on public.tasks;
 create policy tasks_admin_all on public.tasks
   for all to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -168,10 +279,18 @@ drop policy if exists workers_admin_all on public.workers;
 create policy workers_admin_all on public.workers
   for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
--- applications : candidature publique + accès total admin
+-- applications : candidature publique (sans usurper un autre compte),
+-- lecture de SES candidatures + celles reçues sur SES tâches, accès admin.
 drop policy if exists applications_insert_public on public.applications;
 create policy applications_insert_public on public.applications
-  for insert to anon, authenticated with check (true);
+  for insert to anon, authenticated
+  with check (user_id is null or user_id = auth.uid());
+drop policy if exists applications_select_own on public.applications;
+create policy applications_select_own on public.applications
+  for select to authenticated using (user_id = auth.uid());
+drop policy if exists applications_select_for_task_owner on public.applications;
+create policy applications_select_for_task_owner on public.applications
+  for select to authenticated using (public.user_owns_task(task_id));
 drop policy if exists applications_admin_all on public.applications;
 create policy applications_admin_all on public.applications
   for all to authenticated using (public.is_admin()) with check (public.is_admin());

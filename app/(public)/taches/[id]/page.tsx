@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getActiveTask } from "@/lib/queries";
+import { getCurrentProfile } from "@/lib/auth";
 import { formatBudget, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { ApplicationForm } from "@/components/forms/ApplicationForm";
@@ -26,6 +27,11 @@ export default async function TaskDetailPage({
   const { id } = await params;
   const task = await getActiveTask(id);
   if (!task) notFound();
+
+  const profile = await getCurrentProfile();
+  const applicantDefaults = profile
+    ? { name: profile.full_name, phone: profile.phone ?? "", email: profile.email }
+    : undefined;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
@@ -94,7 +100,7 @@ export default async function TaskDetailPage({
               contactera.
             </p>
             <div className="mt-5">
-              <ApplicationForm taskId={task.id} />
+              <ApplicationForm taskId={task.id} defaults={applicantDefaults} />
             </div>
           </div>
         </aside>

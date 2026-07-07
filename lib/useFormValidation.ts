@@ -20,22 +20,23 @@ export function useFormValidation<T extends Record<string, string>>(
   const [values, setValues] = useState<T>(initial);
   const [errors, setErrors] = useState<Partial<Record<keyof T, string>>>({});
 
+  function setValue(name: keyof T, value: string) {
+    const nextValues = { ...values, [name]: value };
+    setValues(nextValues);
+    // On ne (re)valide en direct que les champs déjà en erreur, pour ne pas
+    // afficher d'erreur tant que l'utilisateur n'a pas tenté de soumettre.
+    setErrors((prev) => {
+      if (!prev[name]) return prev;
+      const err = validators[name]?.(value, nextValues);
+      const next = { ...prev };
+      if (err) next[name] = err;
+      else delete next[name];
+      return next;
+    });
+  }
+
   function handleChange(name: keyof T) {
-    return (e: React.ChangeEvent<ChangeEl>) => {
-      const value = e.target.value;
-      const nextValues = { ...values, [name]: value };
-      setValues(nextValues);
-      // On ne (re)valide en direct que les champs déjà en erreur, pour ne pas
-      // afficher d'erreur tant que l'utilisateur n'a pas tenté de soumettre.
-      setErrors((prev) => {
-        if (!prev[name]) return prev;
-        const err = validators[name]?.(value, nextValues);
-        const next = { ...prev };
-        if (err) next[name] = err;
-        else delete next[name];
-        return next;
-      });
-    };
+    return (e: React.ChangeEvent<ChangeEl>) => setValue(name, e.target.value);
   }
 
   function validateAll(): boolean {
@@ -48,5 +49,5 @@ export function useFormValidation<T extends Record<string, string>>(
     return Object.keys(next).length === 0;
   }
 
-  return { values, errors, setErrors, handleChange, validateAll };
+  return { values, errors, setErrors, setValue, handleChange, validateAll };
 }

@@ -48,9 +48,21 @@ const validators: Validators<Values> = {
   contact_email: (v) => (!isEmail(v) ? "Courriel invalide." : undefined),
 };
 
-export function TaskForm() {
+export function TaskForm({
+  defaults,
+}: {
+  defaults?: { contact_name?: string; contact_phone?: string; contact_email?: string };
+}) {
   const { values, errors, setErrors, handleChange, validateAll } =
-    useFormValidation(initialValues, validators);
+    useFormValidation(
+      {
+        ...initialValues,
+        contact_name: defaults?.contact_name ?? "",
+        contact_phone: defaults?.contact_phone ?? "",
+        contact_email: defaults?.contact_email ?? "",
+      },
+      validators,
+    );
   const [state, setState] = useState<FormState>({ status: "idle" });
   const [pending, startTransition] = useTransition();
 

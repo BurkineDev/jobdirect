@@ -7,6 +7,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Ne s'exécute que sur l'espace admin (seule zone authentifiée).
-  matcher: ["/admin/:path*"],
+  // Zones authentifiées : admin + compte utilisateur.
+  matcher: ["/admin/:path*", "/mon-compte/:path*"],
 };

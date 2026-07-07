@@ -49,6 +49,11 @@ export async function createApplication(
     };
   }
 
+  // Si un travailleur est connecté, on relie la candidature à son compte.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { error } = await supabase.from("applications").insert({
     task_id: taskId,
     name,
@@ -56,6 +61,7 @@ export async function createApplication(
     email,
     message: message || null,
     status: "new",
+    user_id: user?.id ?? null,
   });
 
   if (error) {

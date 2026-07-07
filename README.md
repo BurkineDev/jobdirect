@@ -36,6 +36,17 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 - **Liste des tâches actives** avec filtres par **ville** et **catégorie**.
 - **Détail d'une tâche** + formulaire **« Je suis disponible pour cette tâche »**.
 
+### Comptes utilisateurs (optionnels)
+
+Les formulaires publics fonctionnent **sans compte**, mais un compte améliore l'expérience :
+
+- **Inscription** (`/inscription`) en tant qu'**employeur** ou **travailleur** ; **connexion** (`/connexion`).
+- Le profil est créé automatiquement à l'inscription (trigger SQL) et pré-remplit les formulaires.
+- **Tableau de bord** (`/mon-compte`) :
+  - *Employeur* : ses tâches publiées + les candidatures reçues (coordonnées incluses).
+  - *Travailleur* : ses candidatures envoyées + édition de son profil (compétences, disponibilités…).
+- Les tâches/candidatures soumises en étant connecté sont **reliées au compte** (`user_id`).
+
 ### Administration (`/admin`)
 
 - Connexion sécurisée (Supabase Auth + liste blanche de courriels).
@@ -55,7 +66,7 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 | Langage          | TypeScript                              |
 | Styles           | Tailwind CSS v4                         |
 | Base de données  | Supabase (PostgreSQL)                   |
-| Authentification | Supabase Auth (admin uniquement)        |
+| Authentification | Supabase Auth (admin + comptes employeur/travailleur) |
 | Hébergement      | Vercel                                  |
 
 ---
@@ -88,9 +99,12 @@ app/
   (public)/                  Pages publiques (header + footer communs)
     page.tsx                 Accueil
     publier/                 Formulaire employeur
-    travailleur/             Inscription travailleur
+    travailleur/             Inscription travailleur (sans compte)
     taches/                  Liste + filtres
     taches/[id]/             Détail + candidature
+    inscription/             Création de compte (employeur / travailleur)
+    connexion/               Connexion utilisateur
+    mon-compte/              Tableau de bord (protégé)
   admin/
     login/                   Connexion admin
     (panel)/                 Espace admin protégé (garde serveur)
@@ -100,16 +114,18 @@ app/
 components/
   ui/                        Boutons, champs, badges, alertes…
   forms/                     Formulaires (client) branchés aux Server Actions
+  auth/                      Formulaires d'inscription / connexion
+  account/                   Tableaux de bord employeur & travailleur, profil
   admin/                     Composants de l'espace admin
-  site/                      Header, footer, logo
+  site/                      Header (auth-aware), footer, logo, menu compte
 lib/
   supabase/                  Clients : client (navigateur) / server / middleware
-  actions/                   Server Actions (tasks, workers, applications, admin)
+  actions/                   Server Actions (tasks, workers, applications, auth, profile, admin)
   queries.ts                 Lectures de données (serveur)
   constants.ts               Villes, catégories, statuts (FR)
-  types.ts, format.ts, validation.ts, auth.ts
-proxy.ts                     Routing Middleware (rafraîchit la session, protège /admin)
-supabase/schema.sql          Schéma SQL complet
+  types.ts, format.ts, validation.ts, auth.ts, useFormValidation.ts
+proxy.ts                     Routing Middleware (sessions ; protège /admin et /mon-compte)
+supabase/schema.sql          Schéma SQL complet (tables, profils, RLS, triggers)
 ```
 
 ---

@@ -16,17 +16,29 @@ type Values = {
   message: string;
 };
 
-const initialValues: Values = { name: "", phone: "", email: "", message: "" };
-
 const validators: Validators<Values> = {
   name: (v) => (!v.trim() ? "Votre nom est requis." : undefined),
   phone: (v) => (!isPhone(v) ? "Numéro de téléphone invalide." : undefined),
   email: (v) => (!isEmail(v) ? "Courriel invalide." : undefined),
 };
 
-export function ApplicationForm({ taskId }: { taskId: string }) {
+export function ApplicationForm({
+  taskId,
+  defaults,
+}: {
+  taskId: string;
+  defaults?: { name?: string; phone?: string; email?: string };
+}) {
   const { values, errors, setErrors, handleChange, validateAll } =
-    useFormValidation(initialValues, validators);
+    useFormValidation(
+      {
+        name: defaults?.name ?? "",
+        phone: defaults?.phone ?? "",
+        email: defaults?.email ?? "",
+        message: "",
+      },
+      validators,
+    );
   const [state, setState] = useState<FormState>({ status: "idle" });
   const [pending, startTransition] = useTransition();
 

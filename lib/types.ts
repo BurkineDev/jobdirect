@@ -53,6 +53,24 @@ export interface AdminNote {
   created_at: string;
 }
 
+export type UserRole = "employer" | "worker";
+
+export interface Profile {
+  id: string;
+  role: UserRole;
+  full_name: string;
+  phone: string | null;
+  city: string | null;
+  skills: string | null;
+  availability: string | null;
+  experience: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Profil + courriel du compte auth associé. */
+export type SessionProfile = Profile & { email: string };
+
 /** Résultat standard renvoyé par les Server Actions de formulaire. */
 export type FormState =
   | { status: "idle" }
