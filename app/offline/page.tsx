@@ -15,6 +15,9 @@ export default function OfflinePage() {
         JobDirect a besoin d&apos;une connexion Internet. Vérifiez votre réseau,
         puis réessayez.
       </p>
+      {/* Rechargement complet volontaire : on veut re-tenter le réseau, pas une
+          navigation client (qui échouerait aussi hors ligne). */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <a
         href="/"
         className="mt-8 inline-flex h-11 items-center justify-center rounded-lg bg-brand-500 px-6 text-sm font-semibold text-white hover:bg-brand-600"
