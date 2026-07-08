@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,7 +16,13 @@ export const metadata: Metadata = {
   },
   description:
     "JobDirect met en relation employeurs et particuliers du Québec avec des travailleurs journaliers disponibles près de chez vous.",
-  metadataBase: new URL("https://jobdirect.ca"),
+  metadataBase: new URL("https://jobdirectquebec.com"),
+  applicationName: "JobDirect",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "JobDirect",
+  },
   openGraph: {
     title: "JobDirect",
     description:
@@ -23,6 +30,13 @@ export const metadata: Metadata = {
     locale: "fr_CA",
     type: "website",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f97316",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -33,6 +47,7 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col bg-white text-ink">
         {children}
         <Analytics />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
