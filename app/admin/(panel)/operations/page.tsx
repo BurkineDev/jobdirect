@@ -123,7 +123,7 @@ export default async function AdminOperationsPage() {
                     </p>
                   ) : (
                     <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {matches.map(({ candidate, reason }) => (
+                      {matches.map(({ candidate, reason, score }) => (
                         <li
                           key={candidate.key}
                           className="rounded-lg bg-gray-50 p-3 text-sm"
@@ -134,9 +134,11 @@ export default async function AdminOperationsPage() {
                             </span>
                             <Badge
                               tone={
-                                reason === "ville + compétences"
+                                score >= 3
                                   ? "bg-green-100 text-green-800 ring-green-200"
-                                  : "bg-gray-100 text-gray-600 ring-gray-200"
+                                  : score >= 2
+                                    ? "bg-blue-100 text-blue-800 ring-blue-200"
+                                    : "bg-gray-100 text-gray-600 ring-gray-200"
                               }
                             >
                               {reason}
