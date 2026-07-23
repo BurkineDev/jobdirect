@@ -1,18 +1,26 @@
 import Link from "next/link";
-import { getAllTasks, getCommissions, getWorkerPool } from "@/lib/queries";
+import {
+  getAllTasks,
+  getCommissions,
+  getConnectionRequests,
+  getWorkerPool,
+} from "@/lib/queries";
 import { suggestMatches } from "@/lib/matching";
-import { formatBudget, formatDate } from "@/lib/format";
+import { formatBudget, formatDate, formatDateTime } from "@/lib/format";
+import { CONNECTION_REQUEST_STATUS_META } from "@/lib/constants";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/admin/StatCard";
 import { ActivateTaskButton } from "@/components/admin/ActivateTaskButton";
 import { TaskStatusSelect } from "@/components/admin/TaskStatusSelect";
 import { CommissionRow } from "@/components/admin/CommissionRow";
+import { ConnectionRequestStatusSelect } from "@/components/admin/ConnectionRequestStatusSelect";
 
 export default async function AdminOperationsPage() {
-  const [tasks, pool, commissions] = await Promise.all([
+  const [tasks, pool, commissions, requests] = await Promise.all([
     getAllTasks(),
     getWorkerPool(),
     getCommissions(),
+    getConnectionRequests(),
   ]);
 
   const pending = tasks.filter((t) => t.status === "pending");
@@ -21,6 +29,7 @@ export default async function AdminOperationsPage() {
   const collected = commissions.filter((c) => c.status === "paid");
   const totalToCollect = toCollect.reduce((s, c) => s + Number(c.amount), 0);
   const totalCollected = collected.reduce((s, c) => s + Number(c.amount), 0);
+  const newRequests = requests.filter((r) => r.status === "new");
 
   return (
     <div className="space-y-10">
@@ -43,6 +52,73 @@ export default async function AdminOperationsPage() {
         />
         <StatCard label="Encaissé au total" value={`${totalCollected.toFixed(2)} $`} />
       </div>
+
+      {/* 0. Demandes de mise en relation (leads chauds : un client veut CETTE personne) */}
+      {requests.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-lg font-bold text-ink">
+            ⭐ Demandes de mise en relation{" "}
+            <span className="font-normal text-gray-400">
+              ({newRequests.length} nouvelle{newRequests.length > 1 ? "s" : ""})
+            </span>
+          </h2>
+          {requests.map((r) => {
+            const meta = CONNECTION_REQUEST_STATUS_META[r.status];
+            return (
+              <div
+                key={r.id}
+                className="rounded-xl border border-brand-200 bg-brand-50/40 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-ink">
+                      {r.client_name}{" "}
+                      <span className="font-normal text-gray-500">
+                        veut embaucher
+                      </span>{" "}
+                      {r.worker_name ?? "un travailleur"}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-4 text-sm">
+                      <a
+                        href={`tel:${r.client_phone}`}
+                        className="text-brand-600 hover:underline"
+                      >
+                        {r.client_phone}
+                      </a>
+                      <a
+                        href={`mailto:${r.client_email}`}
+                        className="text-brand-600 hover:underline"
+                      >
+                        {r.client_email}
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge tone={meta.badge}>{meta.label}</Badge>
+                    <ConnectionRequestStatusSelect
+                      requestId={r.id}
+                      status={r.status}
+                    />
+                  </div>
+                </div>
+                {r.need && (
+                  <p className="mt-2 whitespace-pre-line rounded-lg bg-white p-3 text-sm text-gray-700">
+                    {r.need}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-400">
+                  {formatDateTime(r.created_at)}
+                </p>
+              </div>
+            );
+          })}
+          <p className="text-xs text-gray-400">
+            Contactez le client, mettez-le en relation avec le travailleur
+            (dont vous avez les coordonnées côté admin), puis facturez la
+            commission.
+          </p>
+        </section>
+      )}
 
       {/* 1. File de validation */}
       <section className="space-y-4">

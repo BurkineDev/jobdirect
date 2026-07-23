@@ -69,6 +69,33 @@ export interface Profile {
   updated_at: string;
 }
 
+/** Profil travailleur exposé publiquement (identifiants réduits, sans coordonnées). */
+export interface PublicWorker {
+  id: string;
+  display_name: string;
+  city: string;
+  skills: string;
+  availability: string;
+  experience: string | null;
+  created_at: string;
+}
+
+export type ConnectionRequestStatus = "new" | "contacted" | "matched" | "closed";
+
+/** Demande d'un client pour être mis en relation avec un travailleur. */
+export interface ConnectionRequest {
+  id: string;
+  worker_id: string | null;
+  worker_name: string | null;
+  client_name: string;
+  client_phone: string;
+  client_email: string;
+  city: string | null;
+  need: string | null;
+  status: ConnectionRequestStatus;
+  created_at: string;
+}
+
 export type CommissionStatus = "pending" | "paid";
 
 /** Commission de mise en relation (payée hors plateforme, ex. Interac). */

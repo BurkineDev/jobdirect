@@ -7,6 +7,8 @@ import type {
   AdminNote,
   Commission,
   Profile,
+  PublicWorker,
+  ConnectionRequest,
 } from "./types";
 
 /**
@@ -66,6 +68,39 @@ export async function getActiveTask(id: string): Promise<PublicTask | null> {
     return null;
   }
   return (data as PublicTask) ?? null;
+}
+
+// --- Répertoire PUBLIC des travailleurs (via la vue public_workers) ---------
+
+const PUBLIC_WORKER_COLUMNS =
+  "id, display_name, city, skills, availability, experience, created_at";
+
+export async function getPublicWorkers(filters: {
+  city?: string;
+}): Promise<PublicWorker[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("public_workers")
+    .select(PUBLIC_WORKER_COLUMNS)
+    .order("created_at", { ascending: false });
+  if (filters.city) query = query.eq("city", filters.city);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("getPublicWorkers error", error);
+    return [];
+  }
+  return (data ?? []) as PublicWorker[];
+}
+
+export async function getPublicWorker(id: string): Promise<PublicWorker | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("public_workers")
+    .select(PUBLIC_WORKER_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  return (data as PublicWorker) ?? null;
 }
 
 // --- Lectures COMPTE utilisateur (via la session authentifiée + RLS) --------
@@ -224,6 +259,20 @@ export async function getCommissions(): Promise<CommissionWithTask[]> {
     return [];
   }
   return (data ?? []) as CommissionWithTask[];
+}
+
+/** Demandes de mise en relation (client → travailleur). Réservé admin. */
+export async function getConnectionRequests(): Promise<ConnectionRequest[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("connection_requests")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("getConnectionRequests error", error);
+    return [];
+  }
+  return (data ?? []) as ConnectionRequest[];
 }
 
 /** Candidat au matching : travailleur inscrit (formulaire) ou compte travailleur. */

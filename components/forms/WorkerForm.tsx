@@ -179,6 +179,13 @@ export function WorkerForm() {
         />
       </Field>
 
+      <p className="text-xs text-gray-500">
+        En vous inscrivant, votre profil (prénom, ville, compétences,
+        disponibilités) pourra être présenté aux clients qui cherchent de
+        l&apos;aide. Vos coordonnées restent privées et ne sont jamais affichées
+        publiquement.
+      </p>
+
       <Button type="submit" size="lg" disabled={pending}>
         {pending ? "Inscription en cours…" : "M'inscrire"}
       </Button>

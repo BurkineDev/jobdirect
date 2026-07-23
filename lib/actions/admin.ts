@@ -7,8 +7,10 @@ import { getAdminUser, isAdminEmail } from "@/lib/auth";
 import { getString } from "@/lib/validation";
 import {
   APPLICATION_STATUSES,
+  CONNECTION_REQUEST_STATUSES,
   TASK_STATUSES,
   type ApplicationStatus,
+  type ConnectionRequestStatusValue,
   type TaskStatus,
 } from "@/lib/constants";
 import type { FormState } from "@/lib/types";
@@ -101,6 +103,24 @@ export async function updateApplicationStatus(
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/candidatures");
+}
+
+export async function updateConnectionRequestStatus(
+  requestId: string,
+  status: ConnectionRequestStatusValue,
+) {
+  await assertAdmin();
+  if (!CONNECTION_REQUEST_STATUSES.includes(status))
+    throw new Error("Statut invalide.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("connection_requests")
+    .update({ status })
+    .eq("id", requestId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/operations");
 }
 
 // --- Commissions (mise en relation) -----------------------------------------

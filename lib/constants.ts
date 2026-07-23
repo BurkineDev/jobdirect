@@ -89,6 +89,33 @@ export const APPLICATION_STATUSES = [
 
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+/** Statuts d'une demande de mise en relation (client → travailleur). */
+export const CONNECTION_REQUEST_STATUSES = [
+  "new",
+  "contacted",
+  "matched",
+  "closed",
+] as const;
+
+export type ConnectionRequestStatusValue =
+  (typeof CONNECTION_REQUEST_STATUSES)[number];
+
+export const CONNECTION_REQUEST_STATUS_META: Record<
+  ConnectionRequestStatusValue,
+  { label: string; badge: string }
+> = {
+  new: { label: "Nouvelle", badge: "bg-brand-100 text-brand-800 ring-brand-200" },
+  contacted: {
+    label: "Contactée",
+    badge: "bg-amber-100 text-amber-800 ring-amber-200",
+  },
+  matched: {
+    label: "Mise en relation",
+    badge: "bg-green-100 text-green-800 ring-green-200",
+  },
+  closed: { label: "Fermée", badge: "bg-gray-100 text-gray-700 ring-gray-200" },
+};
+
 export const APPLICATION_STATUS_META: Record<
   ApplicationStatus,
   { label: string; badge: string }

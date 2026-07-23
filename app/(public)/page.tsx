@@ -55,8 +55,11 @@ export default function HomePage() {
             </div>
             <p className="mt-4 text-sm text-gray-500">
               Gratuit · Sans engagement ·{" "}
-              <Link href="/taches" className="font-medium text-brand-600 hover:underline">
-                Voir les tâches actives
+              <Link
+                href="/embaucher"
+                className="font-medium text-brand-600 hover:underline"
+              >
+                Voir les travailleurs disponibles
               </Link>
             </p>
           </div>
@@ -156,6 +159,12 @@ export default function HomePage() {
             >
               Publier une tâche
             </ButtonLink>
+            <p className="mt-4 text-sm text-brand-50">
+              ou{" "}
+              <Link href="/embaucher" className="font-semibold underline">
+                choisissez directement un travailleur
+              </Link>
+            </p>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-white p-8">
             <h3 className="text-2xl font-bold text-ink">

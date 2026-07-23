@@ -6,7 +6,8 @@ import { signOutUser } from "@/lib/actions/auth";
 import type { SessionProfile } from "@/lib/types";
 
 const navLinks = [
-  { href: "/taches", label: "Parcourir les tâches" },
+  { href: "/taches", label: "Tâches" },
+  { href: "/embaucher", label: "Embaucher" },
   { href: "/travailleur", label: "Je cherche du travail" },
 ];
 
