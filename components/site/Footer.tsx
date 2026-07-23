@@ -28,6 +28,12 @@ export function Footer() {
               Je cherche du travail
             </Link>
             <Link
+              href="/confidentialite"
+              className="text-gray-600 hover:text-brand-600"
+            >
+              Confidentialité
+            </Link>
+            <Link
               href="/admin"
               className="text-gray-600 hover:text-brand-600"
             >

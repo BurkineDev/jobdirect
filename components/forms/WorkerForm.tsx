@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { createWorker } from "@/lib/actions/workers";
 import { CITIES } from "@/lib/constants";
@@ -183,7 +184,11 @@ export function WorkerForm() {
         En vous inscrivant, votre profil (prénom, ville, compétences,
         disponibilités) pourra être présenté aux clients qui cherchent de
         l&apos;aide. Vos coordonnées restent privées et ne sont jamais affichées
-        publiquement.
+        publiquement. Voir notre{" "}
+        <Link href="/confidentialite" className="text-brand-600 hover:underline">
+          politique de confidentialité
+        </Link>
+        .
       </p>
 
       <Button type="submit" size="lg" disabled={pending}>
