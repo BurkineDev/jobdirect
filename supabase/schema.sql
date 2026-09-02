@@ -166,6 +166,9 @@ grant execute on function public.is_admin() to authenticated;
 create table if not exists public.profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   role         text not null check (role in ('employer','worker')),
+  -- false = rôle deviné (compte Google/Apple, qui ne transmet aucun rôle) :
+  -- l'application demande alors à l'utilisateur de trancher.
+  role_confirmed boolean not null default false,
   full_name    text not null default '',
   email        text,
   phone        text,
@@ -206,12 +209,21 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, role, full_name, email, phone, city, skills, availability, experience)
+  insert into public.profiles (
+    id, role, role_confirmed, full_name, email, phone, city, skills, availability, experience
+  )
   values (
     new.id,
     case when new.raw_user_meta_data->>'role' in ('employer','worker')
          then new.raw_user_meta_data->>'role' else 'worker' end,
-    coalesce(new.raw_user_meta_data->>'full_name',''),
+    -- `coalesce` indispensable : sans clé « role » (cas Google/Apple),
+    -- l'expression vaut NULL et non false, ce qui violerait le not-null.
+    coalesce(new.raw_user_meta_data->>'role' in ('employer','worker'), false),
+    coalesce(
+      new.raw_user_meta_data->>'full_name',
+      new.raw_user_meta_data->>'name',
+      ''
+    ),
     new.email,
     new.raw_user_meta_data->>'phone',
     new.raw_user_meta_data->>'city',

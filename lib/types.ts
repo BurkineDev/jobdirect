@@ -60,6 +60,8 @@ export type UserRole = "employer" | "worker";
 export interface Profile {
   id: string;
   role: UserRole;
+  /** false = rôle deviné (compte OAuth) : l'application demande de trancher. */
+  role_confirmed: boolean;
   full_name: string;
   email: string | null;
   phone: string | null;

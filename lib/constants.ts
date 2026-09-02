@@ -134,3 +134,8 @@ export const APPLICATION_STATUS_META: Record<
     badge: "bg-red-100 text-red-700 ring-red-200",
   },
 };
+
+/** Fournisseurs de connexion externe proposés (activés côté Supabase). */
+export const OAUTH_PROVIDERS = ["google", "apple"] as const;
+
+export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];

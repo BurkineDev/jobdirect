@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentProfile } from "@/lib/auth";
 import { EmployerDashboard } from "@/components/account/EmployerDashboard";
 import { WorkerDashboard } from "@/components/account/WorkerDashboard";
+import { RoleChooser } from "@/components/auth/RoleChooser";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Mon tableau de bord" };
@@ -21,6 +22,8 @@ export default async function MonComptePage() {
           Bonjour, {profile.full_name || profile.email}
         </h1>
       </header>
+
+      {!profile.role_confirmed && <RoleChooser />}
 
       {profile.role === "employer" ? (
         <EmployerDashboard userId={profile.id} />
