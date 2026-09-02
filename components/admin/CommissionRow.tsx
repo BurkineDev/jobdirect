@@ -6,14 +6,42 @@ import {
   reopenCommission,
   deleteCommission,
 } from "@/lib/actions/admin";
+import { createCommissionPaymentLink } from "@/lib/actions/payments";
 import { formatDateTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import type { CommissionWithTask } from "@/lib/queries";
 
-export function CommissionRow({ commission }: { commission: CommissionWithTask }) {
+export function CommissionRow({
+  commission,
+  stripeEnabled,
+}: {
+  commission: CommissionWithTask;
+  stripeEnabled: boolean;
+}) {
   const [amount, setAmount] = useState(String(commission.amount));
   const [pending, startTransition] = useTransition();
+  const [link, setLink] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkPending, startLinkTransition] = useTransition();
   const paid = commission.status === "paid";
+
+  function generateLink() {
+    setLinkError(null);
+    startLinkTransition(async () => {
+      const res = await createCommissionPaymentLink(commission.id);
+      if ("url" in res) {
+        setLink(res.url);
+        // Confort : le lien est prêt à coller dans un texto au client.
+        try {
+          await navigator.clipboard.writeText(res.url);
+        } catch {
+          // Presse-papiers refusé : le lien reste affiché et sélectionnable.
+        }
+      } else {
+        setLinkError(res.error);
+      }
+    });
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -108,6 +136,38 @@ export function CommissionRow({ commission }: { commission: CommissionWithTask }
           )}
         </div>
       </div>
+
+      {/* Encaissement par carte : le webhook marque « Payée » automatiquement. */}
+      {!paid && stripeEnabled && (
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <button
+            type="button"
+            disabled={linkPending}
+            onClick={generateLink}
+            className="rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+          >
+            {linkPending ? "Génération…" : "Créer un lien de paiement"}
+          </button>
+
+          {link && (
+            <div className="mt-2">
+              <p className="text-xs text-green-700">
+                Lien copié — envoyez-le au client par texto ou courriel.
+              </p>
+              <input
+                readOnly
+                value={link}
+                aria-label="Lien de paiement Stripe"
+                onFocus={(e) => e.currentTarget.select()}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 font-mono text-xs text-gray-600"
+              />
+            </div>
+          )}
+          {linkError && (
+            <p className="mt-2 text-xs text-red-600">{linkError}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

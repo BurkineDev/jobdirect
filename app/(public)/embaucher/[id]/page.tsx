@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getPublicWorker } from "@/lib/queries";
+import { connectionFee, isStripeEnabled } from "@/lib/stripe";
 import { Badge } from "@/components/ui/Badge";
 import { HireRequestForm } from "@/components/forms/HireRequestForm";
 
@@ -19,14 +20,18 @@ export async function generateMetadata({
 
 export default async function WorkerProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ paiement?: string }>;
 }) {
   const { id } = await params;
+  const { paiement } = await searchParams;
   const worker = await getPublicWorker(id);
   if (!worker) notFound();
 
   const initial = worker.display_name.charAt(0).toUpperCase();
+  const fee = isStripeEnabled() ? connectionFee() : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
@@ -96,10 +101,20 @@ export default async function WorkerProfilePage({
               Laissez vos coordonnées : notre équipe vous met en contact
               rapidement pour organiser la tâche.
             </p>
+            {paiement === "annule" && (
+              <div
+                className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+                role="status"
+              >
+                Paiement annulé — votre demande est enregistrée. Vous pouvez
+                réessayer quand vous voulez.
+              </div>
+            )}
             <div className="mt-5">
               <HireRequestForm
                 workerId={worker.id}
                 workerName={worker.display_name}
+                fee={fee}
               />
             </div>
           </div>

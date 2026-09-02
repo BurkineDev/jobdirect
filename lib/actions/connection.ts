@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createConnectionCheckout } from "@/lib/payments";
+import { connectionFee, isStripeEnabled } from "@/lib/stripe";
 import { getString, isEmail, isPhone } from "@/lib/validation";
 import type { FormState } from "@/lib/types";
 
@@ -9,6 +11,9 @@ import type { FormState } from "@/lib/types";
  * Demande de mise en relation : un client veut embaucher un travailleur.
  * Les coordonnées du travailleur ne sont jamais exposées ; c'est l'admin
  * qui fait la mise en relation (et facture la commission).
+ *
+ * La piste est enregistrée d'abord, le paiement ensuite : si Stripe échoue ou
+ * si le client abandonne le paiement, le lead n'est pas perdu pour autant.
  */
 export async function createConnectionRequest(
   _prev: FormState,
@@ -36,8 +41,13 @@ export async function createConnectionRequest(
     };
   }
 
+  // Identifiant généré côté serveur : la RLS n'autorise pas le visiteur
+  // anonyme à relire la ligne insérée (`insert ... returning` échouerait).
+  const requestId = crypto.randomUUID();
+
   const supabase = await createClient();
   const { error } = await supabase.from("connection_requests").insert({
+    id: requestId,
     worker_id: workerId || null,
     worker_name: workerName || null,
     client_name: clientName,
@@ -57,6 +67,26 @@ export async function createConnectionRequest(
   }
 
   revalidatePath("/admin/operations");
+
+  // Encaisser AVANT de livrer la mise en relation : c'est la seule étape où
+  // l'on dispose encore d'un levier. Sans Stripe configuré, on retombe sur le
+  // circuit manuel (Interac) sans rien changer pour le visiteur.
+  if (isStripeEnabled()) {
+    const url = await createConnectionCheckout({
+      requestId,
+      workerId,
+      workerName,
+      clientEmail,
+    });
+    if (url) {
+      return {
+        status: "success",
+        message: `Demande enregistrée ! Redirection vers le paiement sécurisé (${connectionFee()} $)…`,
+        redirectUrl: url,
+      };
+    }
+  }
+
   return {
     status: "success",
     message:

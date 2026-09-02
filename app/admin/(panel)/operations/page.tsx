@@ -8,6 +8,7 @@ import {
 import { suggestMatches } from "@/lib/matching";
 import { formatBudget, formatDate, formatDateTime } from "@/lib/format";
 import { CONNECTION_REQUEST_STATUS_META } from "@/lib/constants";
+import { isStripeEnabled } from "@/lib/stripe";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/admin/StatCard";
 import { ActivateTaskButton } from "@/components/admin/ActivateTaskButton";
@@ -23,13 +24,25 @@ export default async function AdminOperationsPage() {
     getConnectionRequests(),
   ]);
 
+  const stripeEnabled = isStripeEnabled();
   const pending = tasks.filter((t) => t.status === "pending");
   const active = tasks.filter((t) => t.status === "active");
   const toCollect = commissions.filter((c) => c.status === "pending");
   const collected = commissions.filter((c) => c.status === "paid");
   const totalToCollect = toCollect.reduce((s, c) => s + Number(c.amount), 0);
-  const totalCollected = collected.reduce((s, c) => s + Number(c.amount), 0);
   const newRequests = requests.filter((r) => r.status === "new");
+
+  // Les frais de mise en relation payés d'avance comptent dans l'encaissé.
+  const paidRequests = requests.filter((r) => r.paid_at);
+  const totalCollected =
+    collected.reduce((s, c) => s + Number(c.amount), 0) +
+    paidRequests.reduce((s, r) => s + Number(r.amount_paid ?? 0), 0);
+
+  // Une demande PAYÉE est une promesse tenue à livrer en premier.
+  const sortedRequests = [...requests].sort((a, b) => {
+    if (Boolean(a.paid_at) !== Boolean(b.paid_at)) return a.paid_at ? -1 : 1;
+    return b.created_at.localeCompare(a.created_at);
+  });
 
   return (
     <div className="space-y-10">
@@ -59,15 +72,23 @@ export default async function AdminOperationsPage() {
           <h2 className="text-lg font-bold text-ink">
             ⭐ Demandes de mise en relation{" "}
             <span className="font-normal text-gray-400">
-              ({newRequests.length} nouvelle{newRequests.length > 1 ? "s" : ""})
+              ({newRequests.length} nouvelle{newRequests.length > 1 ? "s" : ""}
+              {paidRequests.length > 0
+                ? ` · ${paidRequests.length} payée${paidRequests.length > 1 ? "s" : ""}`
+                : ""}
+              )
             </span>
           </h2>
-          {requests.map((r) => {
+          {sortedRequests.map((r) => {
             const meta = CONNECTION_REQUEST_STATUS_META[r.status];
             return (
               <div
                 key={r.id}
-                className="rounded-xl border border-brand-200 bg-brand-50/40 p-4"
+                className={
+                  r.paid_at
+                    ? "rounded-xl border-2 border-green-300 bg-green-50/50 p-4"
+                    : "rounded-xl border border-brand-200 bg-brand-50/40 p-4"
+                }
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -94,6 +115,11 @@ export default async function AdminOperationsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    {r.paid_at && (
+                      <Badge tone="bg-green-100 text-green-800 ring-green-200">
+                        Payé {Number(r.amount_paid ?? 0).toFixed(2)} $
+                      </Badge>
+                    )}
                     <Badge tone={meta.badge}>{meta.label}</Badge>
                     <ConnectionRequestStatusSelect
                       requestId={r.id}
@@ -114,8 +140,10 @@ export default async function AdminOperationsPage() {
           })}
           <p className="text-xs text-gray-400">
             Contactez le client, mettez-le en relation avec le travailleur
-            (dont vous avez les coordonnées côté admin), puis facturez la
-            commission.
+            (dont vous avez les coordonnées côté admin). Les demandes{" "}
+            <strong>payées</strong> sont déjà encaissées : elles passent en
+            premier, et un remboursement Stripe s&apos;impose si vous ne
+            trouvez personne.
           </p>
         </section>
       )}
@@ -280,7 +308,11 @@ export default async function AdminOperationsPage() {
         ) : (
           <div className="space-y-3">
             {[...toCollect, ...collected].map((c) => (
-              <CommissionRow key={c.id} commission={c} />
+              <CommissionRow
+                key={c.id}
+                commission={c}
+                stripeEnabled={stripeEnabled}
+              />
             ))}
           </div>
         )}
