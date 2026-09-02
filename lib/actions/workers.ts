@@ -17,6 +17,8 @@ export async function createWorker(
   const skills = getString(formData, "skills");
   const availability = getString(formData, "availability");
   const experience = getString(formData, "experience");
+  // Consentement à la publication ; absent du formulaire = publié (défaut SQL).
+  const isPublic = formData.get("is_public") !== "false";
 
   const fieldErrors: Record<string, string> = {};
   if (!name) fieldErrors.name = "Votre nom est requis.";
@@ -44,6 +46,7 @@ export async function createWorker(
     skills,
     availability,
     experience: experience || null,
+    is_public: isPublic,
   });
 
   if (error) {

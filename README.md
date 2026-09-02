@@ -100,7 +100,10 @@ nécessaire (plus simple à déployer, moins de secrets à gérer).
   authentifiée par Supabase Auth (clé `anon` + cookies via `@supabase/ssr`).
 - **Travailleurs** : la vue `public_workers` n'expose qu'un nom abrégé
   (« Marc T. ») — jamais le téléphone ni le courriel. Les coordonnées ne
-  circulent que par la mise en relation, qui est le service facturé.
+  circulent que par la mise en relation, qui est le service facturé. Chaque
+  travailleur garde un **droit de retrait** (`is_public`, réglable depuis le
+  formulaire d'inscription et depuis `/mon-compte`) : décoché, son profil
+  disparaît du répertoire.
 - **Paiements** : la table `payments` est invisible au public. Une demande de
   mise en relation ne peut **pas** être insérée en se déclarant payée : seul le
   webhook Stripe (clé service role) fait passer un paiement à « payé », et un
@@ -151,7 +154,8 @@ lib/
   constants.ts               Villes, catégories, statuts (FR)
   types.ts, format.ts, validation.ts, auth.ts, useFormValidation.ts
 proxy.ts                     Routing Middleware (sessions ; protège /admin et /mon-compte)
-supabase/schema.sql          Schéma SQL complet (tables, profils, RLS, triggers)
+supabase/schema.sql          Schéma SQL complet (installation neuve)
+supabase/migrations/         Migrations pour faire évoluer une base existante
 ```
 
 ---
@@ -211,6 +215,14 @@ Sans elles, l'encaissement reste manuel (Interac) et rien d'autre ne change.
 2. Notez le **mot de passe** de la base.
 
 ### 2. Créer les tables
+
+> **Base neuve ou base existante ?**
+> `schema.sql` **installe** un schéma neuf. Ses `create table if not exists`
+> laissent intacte une table déjà présente, même si ses colonnes ont changé :
+> ce n'est donc **pas** un outil de mise à jour. Pour une base déjà déployée,
+> appliquez les fichiers de [`supabase/migrations/`](supabase/migrations) dans
+> l'ordre chronologique — eux utilisent des `alter table ... add column if not
+> exists` et sont rejouables sans risque.
 
 1. Ouvrez **SQL Editor → New query**.
 2. Copiez tout le contenu de [`supabase/schema.sql`](supabase/schema.sql) et exécutez-le (**Run**).
