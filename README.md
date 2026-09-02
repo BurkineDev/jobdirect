@@ -375,6 +375,28 @@ TPS/TVQ (obligatoire au-delà de 30 000 $ de revenus sur quatre trimestres),
 activez **Stripe Tax** et passez `automatic_tax: { enabled: true }` dans
 `lib/payments.ts` et `lib/actions/payments.ts`.
 
+### Vérifier la configuration d'un déploiement
+
+Vercel **fige les variables d'environnement dans chaque déploiement** : une
+variable ajoutée après coup, ou enregistrée pour « Preview » seulement, reste
+invisible en production — sans aucun signal.
+
+Connecté à `/admin`, ouvrez **`/api/diagnostic`** (lien aussi présent en haut
+de la page Opérations). La réponse indique quelles variables ce déploiement
+voit réellement, si la clé service role est acceptée par Supabase, et si
+Stripe tourne en mode `test` ou `live`.
+
+La route ne renvoie **jamais** la valeur d'un secret — uniquement des booléens
+de présence et le mode Stripe — et répond 404 à qui n'est pas administrateur.
+
+Sonde publique complémentaire, sans authentification :
+
+```bash
+curl -X POST https://<votre-domaine>/api/stripe/webhook -d '{}'
+# 400 « Signature manquante » -> les clés sont lues
+# 503 « Stripe non configuré » -> il en manque au moins une
+```
+
 ### Rembourser
 
 Depuis le tableau de bord Stripe (*Paiements → Rembourser*). L'événement

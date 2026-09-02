@@ -46,12 +46,30 @@ export default async function AdminOperationsPage() {
 
   return (
     <div className="space-y-10">
-      <div>
-        <h1 className="text-2xl font-bold text-ink">Opérations</h1>
-        <p className="text-sm text-gray-500">
-          Le circuit des premiers revenus : valider → mettre en relation →
-          assigner → encaisser la commission (Interac).
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ink">Opérations</h1>
+          <p className="text-sm text-gray-500">
+            Le circuit des premiers revenus : valider → mettre en relation →
+            assigner → encaisser la commission (Interac).
+          </p>
+        </div>
+        {/* Répond à « pourquoi le paiement en ligne ne s'active pas ? » sans
+            avoir à fouiller les variables d'environnement de l'hébergeur. */}
+        <a
+          href="/api/diagnostic"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
+            stripeEnabled
+              ? "text-gray-500 hover:bg-gray-100"
+              : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+          }`}
+        >
+          {stripeEnabled
+            ? "Diagnostic de configuration"
+            : "⚠ Paiement en ligne inactif — diagnostic"}
+        </a>
       </div>
 
       {/* Vue d'ensemble */}
