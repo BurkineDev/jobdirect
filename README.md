@@ -20,9 +20,10 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 4. [Démarrage rapide](#démarrage-rapide)
 5. [Variables d'environnement](#variables-denvironnement)
 6. [Configuration Supabase](#configuration-supabase)
-7. [Déploiement sur Vercel](#déploiement-sur-vercel)
-8. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
-9. [Évolutions prévues](#évolutions-prévues)
+7. [Paiements Stripe](#paiements-stripe)
+8. [Déploiement sur Vercel](#déploiement-sur-vercel)
+9. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
+10. [Évolutions prévues](#évolutions-prévues)
 
 ---
 
@@ -35,6 +36,10 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 - **Je cherche du travail** : inscription travailleur (nom, téléphone, courriel, ville, compétences, disponibilités, expérience).
 - **Liste des tâches actives** avec filtres par **ville** et **catégorie**.
 - **Détail d'une tâche** + formulaire **« Je suis disponible pour cette tâche »**.
+- **Répertoire des travailleurs** (`/embaucher`) : profils anonymisés
+  (« Prénom N. », jamais les coordonnées) + **demande de mise en relation**.
+- **Paiement en ligne** des frais de mise en relation (Stripe), encaissés
+  **avant** la mise en contact — voir [Paiements Stripe](#paiements-stripe).
 
 ### Comptes utilisateurs (optionnels)
 
@@ -67,6 +72,7 @@ Les formulaires publics fonctionnent **sans compte**, mais un compte améliore l
 | Styles           | Tailwind CSS v4                         |
 | Base de données  | Supabase (PostgreSQL)                   |
 | Authentification | Supabase Auth (admin + comptes employeur/travailleur) |
+| Paiements        | Stripe Checkout + webhook (optionnel)   |
 | Hébergement      | Vercel                                  |
 
 ---
@@ -79,6 +85,12 @@ L'application n'utilise **que la clé publique** Supabase. La sécurité repose
 sur la **RLS** (Row Level Security) — aucune clé secrète « service role » n'est
 nécessaire (plus simple à déployer, moins de secrets à gérer).
 
+> **Une seule exception : les paiements.** Un webhook Stripe arrive sans cookie
+> ni session, donc aucune politique RLS ne peut l'autoriser. La clé
+> `SUPABASE_SERVICE_ROLE_KEY` est donc requise **uniquement si vous activez
+> Stripe**, et n'est lue que par `lib/supabase/admin.ts` (webhook + création de
+> session de paiement). Sans Stripe, rien ne change.
+
 - **Public** : insertions de formulaires autorisées par la RLS (les tâches sont
   forcées au statut `pending`). La lecture des tâches passe par la vue
   `public_tasks` qui n'expose **que les colonnes non sensibles** des tâches
@@ -86,6 +98,13 @@ nécessaire (plus simple à déployer, moins de secrets à gérer).
 - **Admin** : accès complet via la fonction SQL `is_admin()` (le courriel du JWT
   doit figurer dans la table `public.admins`), lorsqu'une session admin est
   authentifiée par Supabase Auth (clé `anon` + cookies via `@supabase/ssr`).
+- **Travailleurs** : la vue `public_workers` n'expose qu'un nom abrégé
+  (« Marc T. ») — jamais le téléphone ni le courriel. Les coordonnées ne
+  circulent que par la mise en relation, qui est le service facturé.
+- **Paiements** : la table `payments` est invisible au public. Une demande de
+  mise en relation ne peut **pas** être insérée en se déclarant payée : seul le
+  webhook Stripe (clé service role) fait passer un paiement à « payé », et un
+  trigger SQL propage l'encaissement vers la demande ou la commission.
 - Toutes les écritures passent par des **Server Actions** qui valident les
   entrées avant insertion.
 
@@ -102,9 +121,15 @@ app/
     travailleur/             Inscription travailleur (sans compte)
     taches/                  Liste + filtres
     taches/[id]/             Détail + candidature
+    embaucher/               Répertoire des travailleurs (profils anonymisés)
+    embaucher/[id]/          Profil + demande de mise en relation (payante)
+    embaucher/merci/         Retour Stripe (frais de mise en relation)
+    merci-paiement/          Retour Stripe (commission de tâche)
     inscription/             Création de compte (employeur / travailleur)
     connexion/               Connexion utilisateur
     mon-compte/              Tableau de bord (protégé)
+  api/
+    stripe/webhook/          Webhook Stripe (confirme les encaissements)
   admin/
     login/                   Connexion admin
     (panel)/                 Espace admin protégé (garde serveur)
@@ -119,8 +144,9 @@ components/
   admin/                     Composants de l'espace admin
   site/                      Header (auth-aware), footer, logo, menu compte
 lib/
-  supabase/                  Clients : client (navigateur) / server / middleware
-  actions/                   Server Actions (tasks, workers, applications, auth, profile, admin)
+  supabase/                  Clients : client (navigateur) / server / middleware / admin
+  actions/                   Server Actions (tasks, workers, applications, auth, profile, admin, payments)
+  stripe.ts, payments.ts     Configuration Stripe + création des sessions de paiement
   queries.ts                 Lectures de données (serveur)
   constants.ts               Villes, catégories, statuts (FR)
   types.ts, format.ts, validation.ts, auth.ts, useFormValidation.ts
@@ -161,7 +187,19 @@ Toutes les variables sont définies dans `.env.example`.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ oui   | Clé publique « anon » / « publishable ».                                 |
 | `ADMIN_EMAILS`                  | ❌ non   | Courriels admin autorisés, séparés par des virgules (ex. `you@mail.com`). |
 
-> Aucune clé secrète « service role » n'est requise — la sécurité repose sur la RLS.
+Les suivantes sont **optionnelles** : elles activent le paiement par carte.
+Sans elles, l'encaissement reste manuel (Interac) et rien d'autre ne change.
+
+| Variable                        | Public ? | Description                                                                |
+| ------------------------------- | -------- | -------------------------------------------------------------------------- |
+| `STRIPE_SECRET_KEY`             | ❌ non   | Clé secrète Stripe (`sk_...`).                                             |
+| `STRIPE_WEBHOOK_SECRET`         | ❌ non   | Secret de signature du webhook (`whsec_...`).                              |
+| `SUPABASE_SERVICE_ROLE_KEY`     | ❌ non   | Clé service role — **requise seulement pour Stripe** (voir plus haut).      |
+| `CONNECTION_FEE_CAD`            | ❌ non   | Frais de mise en relation en dollars (défaut : `24`).                      |
+| `NEXT_PUBLIC_SITE_URL`          | ✅ oui   | URL publique du site (retours Stripe). Déduite automatiquement sur Vercel. |
+
+> Hors Stripe, aucune clé secrète « service role » n'est requise — la sécurité
+> repose sur la RLS.
 
 ---
 
@@ -214,6 +252,72 @@ Relancez `npm run dev`.
 
 ---
 
+## Paiements Stripe
+
+Stripe est **optionnel**. Sans clés, l'application se comporte exactement comme
+avant (encaissement manuel par Interac). Dès que les clés sont présentes, le
+paiement par carte s'active tout seul.
+
+### Pourquoi encaisser d'avance
+
+La commission facturée *après* la mise en relation n'est presque jamais payée :
+une fois les deux numéros échangés, le levier a disparu. Le paiement en ligne
+inverse l'ordre — **le client paie, puis vous livrez la mise en relation** — et
+la promesse « remboursé si nous ne trouvons personne » rend l'avance acceptable.
+
+### Les deux flux
+
+| Flux | Déclencheur | Montant |
+| ---- | ----------- | ------- |
+| **Frais de mise en relation** | Le client demande un travailleur sur `/embaucher/[id]` | `CONNECTION_FEE_CAD` (défaut 24 $) |
+| **Commission de tâche** | L'admin crée un lien de paiement depuis **Opérations → Commissions** | Montant de la commission (max de 10 % du budget et 15 $) |
+
+Dans les deux cas, seul le **webhook** marque l'encaissement ; un trigger SQL
+met ensuite à jour la demande ou la commission. Le navigateur ne peut jamais se
+déclarer payé.
+
+### Configuration
+
+1. **Clés API** — Stripe → *Développeurs → Clés API* → copiez la clé secrète
+   dans `STRIPE_SECRET_KEY`.
+2. **Webhook** — Stripe → *Développeurs → Webhooks → Add endpoint* :
+   - URL : `https://<votre-domaine>/api/stripe/webhook`
+   - Événements : `checkout.session.completed`,
+     `checkout.session.async_payment_succeeded`, `charge.refunded`
+   - Copiez le *Signing secret* dans `STRIPE_WEBHOOK_SECRET`.
+3. **Clé service role** — Supabase → *Project Settings → API Keys → service_role*
+   → `SUPABASE_SERVICE_ROLE_KEY`. ⚠️ Jamais de préfixe `NEXT_PUBLIC_`.
+4. **URL du site** — `NEXT_PUBLIC_SITE_URL` en local ; déduite automatiquement
+   sur Vercel.
+
+### Tester en local
+
+```bash
+# Terminal 1
+npm run dev
+
+# Terminal 2 — redirige les événements Stripe vers votre machine
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+# copiez le « whsec_... » affiché dans STRIPE_WEBHOOK_SECRET, puis relancez npm run dev
+```
+
+Payez avec la carte de test `4242 4242 4242 4242` (date future, CVC libre).
+
+### Taxes (TPS/TVQ)
+
+Les montants sont facturés **sans taxes**. Dès votre inscription aux fichiers
+TPS/TVQ (obligatoire au-delà de 30 000 $ de revenus sur quatre trimestres),
+activez **Stripe Tax** et passez `automatic_tax: { enabled: true }` dans
+`lib/payments.ts` et `lib/actions/payments.ts`.
+
+### Rembourser
+
+Depuis le tableau de bord Stripe (*Paiements → Rembourser*). L'événement
+`charge.refunded` remet automatiquement la demande en « non payée » et la
+commission en « à encaisser ».
+
+---
+
 ## Déploiement sur Vercel
 
 1. Poussez le code sur un dépôt GitHub/GitLab/Bitbucket.
@@ -241,7 +345,10 @@ vercel --prod     # déploiement production
 
 ### Configuration
 
-- [ ] Les 3 variables d'environnement sont définies (local **et** Vercel).
+- [ ] Les 3 variables d'environnement de base sont définies (local **et** Vercel).
+- [ ] *(Stripe)* `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` et
+      `SUPABASE_SERVICE_ROLE_KEY` sont définies, et l'endpoint webhook pointe
+      sur `/api/stripe/webhook`.
 - [ ] `supabase/schema.sql` a été exécuté sans erreur.
 - [ ] L'admin existe dans Supabase Auth, dans `public.admins` **et** dans `ADMIN_EMAILS`.
 - [ ] `npm run build` réussit sans erreur ni avertissement.
@@ -256,6 +363,12 @@ vercel --prod     # déploiement production
 - [ ] Les **filtres** ville/catégorie mettent la liste à jour.
 - [ ] Le **détail** d'une tâche s'affiche **sans** les coordonnées privées du demandeur.
 - [ ] **« Je suis disponible »** crée une candidature visible dans l'admin.
+- [ ] La page **/embaucher** liste des travailleurs (« Prénom N. », sans coordonnées).
+- [ ] Une **demande de mise en relation** apparaît dans Admin → Opérations.
+- [ ] *(Stripe)* Le paiement de test aboutit sur `/embaucher/merci`, et la
+      demande passe **« Payé »** dans Opérations (preuve que le webhook arrive).
+- [ ] *(Stripe)* Un **lien de paiement de commission** marque la commission
+      « Payée » automatiquement après règlement.
 - [ ] La validation des formulaires fonctionne (courriel/téléphone invalides, champs requis).
 - [ ] Une URL de tâche non active / inexistante renvoie la page 404.
 
@@ -274,14 +387,16 @@ vercel --prod     # déploiement production
 - [ ] Affichage correct sur mobile (menu, formulaires, cartes).
 - [ ] Aucune erreur dans la console du navigateur.
 - [ ] Avec la clé publique seule, impossible de lire la table `tasks` (coordonnées privées protégées par la RLS).
+- [ ] Idem pour `connection_requests` et `payments` (invisibles au public).
 
 ---
 
 ## Évolutions prévues
 
+✅ **Paiements Stripe** — livré (voir [Paiements Stripe](#paiements-stripe)).
+
 L'architecture est pensée pour accueillir, sans refonte majeure :
 
-- **Paiements Stripe** : ajouter une table `payments` + des Server Actions ; le flux tâche → candidature → assignation est déjà en place.
 - **Vérification d'identité** : colonnes `verified` / table `verifications` côté `workers`, plus un fournisseur (Stripe Identity, Veriff…).
 - **Notifications WhatsApp / courriel** : déclencher depuis les Server Actions existantes (`createApplication`, `updateTaskStatus`) via un service (Twilio, Resend) ou des **Vercel Queues / Cron**.
 - **Abonnements** : modèle de plans + restrictions d'accès, en s'appuyant sur la même couche d'authentification.

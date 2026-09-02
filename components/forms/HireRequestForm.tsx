@@ -25,9 +25,12 @@ const validators: Validators<Values> = {
 export function HireRequestForm({
   workerId,
   workerName,
+  fee,
 }: {
   workerId: string;
   workerName: string;
+  /** Frais de mise en relation, en dollars. null = paiement en ligne inactif. */
+  fee: number | null;
 }) {
   const { values, errors, setErrors, handleChange, validateAll } =
     useFormValidation(
@@ -51,6 +54,10 @@ export function HireRequestForm({
       const res = await createConnectionRequest({ status: "idle" }, fd);
       setState(res);
       if (res.status === "error" && res.fieldErrors) setErrors(res.fieldErrors);
+      // Paiement sécurisé hébergé par Stripe : on quitte l'application.
+      if (res.status === "success" && res.redirectUrl) {
+        window.location.href = res.redirectUrl;
+      }
     });
   }
 
@@ -108,8 +115,25 @@ export function HireRequestForm({
         />
       </Field>
 
+      {fee !== null && (
+        <div className="rounded-lg border border-brand-200 bg-brand-50 p-4 text-sm text-gray-700">
+          <p className="font-semibold text-ink">
+            Frais de mise en relation : {fee} $
+          </p>
+          <p className="mt-1">
+            Payables à l&apos;étape suivante, par carte. Vous êtes{" "}
+            <strong>intégralement remboursé</strong> si nous ne vous trouvons
+            personne.
+          </p>
+        </div>
+      )}
+
       <Button type="submit" size="lg" className="w-full" disabled={pending}>
-        {pending ? "Envoi en cours…" : "Demander à être mis en relation"}
+        {pending
+          ? "Envoi en cours…"
+          : fee !== null
+            ? "Continuer vers le paiement"
+            : "Demander à être mis en relation"}
       </Button>
       <p className="text-xs text-gray-500">
         Vos coordonnées servent uniquement à vous mettre en contact. Nous ne les

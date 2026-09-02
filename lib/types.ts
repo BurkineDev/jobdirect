@@ -93,6 +93,9 @@ export interface ConnectionRequest {
   city: string | null;
   need: string | null;
   status: ConnectionRequestStatus;
+  /** Frais de mise en relation encaissés d'avance (Stripe). NULL = non payé. */
+  paid_at: string | null;
+  amount_paid: number | null;
   created_at: string;
 }
 
@@ -112,10 +115,35 @@ export interface Commission {
 /** Profil + courriel du compte auth associé. */
 export type SessionProfile = Profile & { email: string };
 
+export type PaymentKind = "connection" | "commission";
+export type PaymentStatus = "pending" | "paid" | "refunded";
+
+/** Encaissement Stripe (frais de mise en relation ou commission de tâche). */
+export interface Payment {
+  id: string;
+  kind: PaymentKind;
+  connection_request_id: string | null;
+  commission_id: string | null;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  stripe_session_id: string | null;
+  stripe_payment_intent: string | null;
+  customer_email: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Résultat standard renvoyé par les Server Actions de formulaire. */
 export type FormState =
   | { status: "idle" }
-  | { status: "success"; message: string }
+  | {
+      status: "success";
+      message: string;
+      /** Paiement Stripe à ouvrir immédiatement (page de paiement hébergée). */
+      redirectUrl?: string;
+    }
   | {
       status: "error";
       message: string;
