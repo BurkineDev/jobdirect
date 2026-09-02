@@ -1,6 +1,8 @@
 import "server-only";
 import Stripe from "stripe";
 
+export { siteUrl } from "./site";
+
 /**
  * Accès Stripe côté serveur.
  *
@@ -47,15 +49,3 @@ export function toCents(amount: number): number {
   return Math.round(amount * 100);
 }
 
-/**
- * URL publique du site, utilisée pour les retours Stripe (success/cancel).
- * Vercel fournit VERCEL_PROJECT_PRODUCTION_URL ; sinon on utilise
- * NEXT_PUBLIC_SITE_URL, et en dernier recours le localhost de développement.
- */
-export function siteUrl(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (vercel) return `https://${vercel}`;
-  return "http://localhost:3000";
-}

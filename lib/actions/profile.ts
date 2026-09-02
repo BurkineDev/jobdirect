@@ -22,6 +22,8 @@ export async function updateProfile(
   const skills = getString(formData, "skills");
   const availability = getString(formData, "availability");
   const experience = getString(formData, "experience");
+  // Envoyé uniquement par les comptes travailleur ; absent = inchangé.
+  const isPublicRaw = formData.get("is_public");
 
   const fieldErrors: Record<string, string> = {};
   if (!fullName) fieldErrors.full_name = "Votre nom est requis.";
@@ -44,6 +46,7 @@ export async function updateProfile(
       skills: skills || null,
       availability: availability || null,
       experience: experience || null,
+      ...(isPublicRaw === null ? {} : { is_public: isPublicRaw !== "false" }),
     })
     .eq("id", user.id);
 

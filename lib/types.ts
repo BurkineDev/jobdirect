@@ -31,6 +31,8 @@ export interface Worker {
   skills: string;
   availability: string;
   experience: string | null;
+  /** false = retiré du répertoire public (vue `public_workers`). */
+  is_public: boolean;
   created_at: string;
 }
 
@@ -58,6 +60,8 @@ export type UserRole = "employer" | "worker";
 export interface Profile {
   id: string;
   role: UserRole;
+  /** false = rôle deviné (compte OAuth) : l'application demande de trancher. */
+  role_confirmed: boolean;
   full_name: string;
   email: string | null;
   phone: string | null;
@@ -65,6 +69,8 @@ export interface Profile {
   skills: string | null;
   availability: string | null;
   experience: string | null;
+  /** false = retiré du répertoire public (comptes travailleur seulement). */
+  is_public: boolean;
   created_at: string;
   updated_at: string;
 }

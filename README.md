@@ -20,10 +20,11 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 4. [Démarrage rapide](#démarrage-rapide)
 5. [Variables d'environnement](#variables-denvironnement)
 6. [Configuration Supabase](#configuration-supabase)
-7. [Paiements Stripe](#paiements-stripe)
-8. [Déploiement sur Vercel](#déploiement-sur-vercel)
-9. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
-10. [Évolutions prévues](#évolutions-prévues)
+7. [Connexion Google / Apple](#connexion-google--apple)
+8. [Paiements Stripe](#paiements-stripe)
+9. [Déploiement sur Vercel](#déploiement-sur-vercel)
+10. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
+11. [Évolutions prévues](#évolutions-prévues)
 
 ---
 
@@ -46,6 +47,7 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 Les formulaires publics fonctionnent **sans compte**, mais un compte améliore l'expérience :
 
 - **Inscription** (`/inscription`) en tant qu'**employeur** ou **travailleur** ; **connexion** (`/connexion`).
+- **Connexion Google / Apple** (OAuth) — voir [Connexion Google / Apple](#connexion-google--apple).
 - Le profil est créé automatiquement à l'inscription (trigger SQL) et pré-remplit les formulaires.
 - **Tableau de bord** (`/mon-compte`) :
   - *Employeur* : ses tâches publiées + les candidatures reçues (coordonnées incluses).
@@ -100,7 +102,10 @@ nécessaire (plus simple à déployer, moins de secrets à gérer).
   authentifiée par Supabase Auth (clé `anon` + cookies via `@supabase/ssr`).
 - **Travailleurs** : la vue `public_workers` n'expose qu'un nom abrégé
   (« Marc T. ») — jamais le téléphone ni le courriel. Les coordonnées ne
-  circulent que par la mise en relation, qui est le service facturé.
+  circulent que par la mise en relation, qui est le service facturé. Chaque
+  travailleur garde un **droit de retrait** (`is_public`, réglable depuis le
+  formulaire d'inscription et depuis `/mon-compte`) : décoché, son profil
+  disparaît du répertoire.
 - **Paiements** : la table `payments` est invisible au public. Une demande de
   mise en relation ne peut **pas** être insérée en se déclarant payée : seul le
   webhook Stripe (clé service role) fait passer un paiement à « payé », et un
@@ -151,7 +156,8 @@ lib/
   constants.ts               Villes, catégories, statuts (FR)
   types.ts, format.ts, validation.ts, auth.ts, useFormValidation.ts
 proxy.ts                     Routing Middleware (sessions ; protège /admin et /mon-compte)
-supabase/schema.sql          Schéma SQL complet (tables, profils, RLS, triggers)
+supabase/schema.sql          Schéma SQL complet (installation neuve)
+supabase/migrations/         Migrations pour faire évoluer une base existante
 ```
 
 ---
@@ -212,6 +218,14 @@ Sans elles, l'encaissement reste manuel (Interac) et rien d'autre ne change.
 
 ### 2. Créer les tables
 
+> **Base neuve ou base existante ?**
+> `schema.sql` **installe** un schéma neuf. Ses `create table if not exists`
+> laissent intacte une table déjà présente, même si ses colonnes ont changé :
+> ce n'est donc **pas** un outil de mise à jour. Pour une base déjà déployée,
+> appliquez les fichiers de [`supabase/migrations/`](supabase/migrations) dans
+> l'ordre chronologique — eux utilisent des `alter table ... add column if not
+> exists` et sont rejouables sans risque.
+
 1. Ouvrez **SQL Editor → New query**.
 2. Copiez tout le contenu de [`supabase/schema.sql`](supabase/schema.sql) et exécutez-le (**Run**).
 3. Cela crée les tables, index, trigger, la **vue `public_tasks`**, la table
@@ -249,6 +263,57 @@ ADMIN_EMAILS=admin@jobdirect.ca
 ```
 
 Relancez `npm run dev`.
+
+---
+
+## Connexion Google / Apple
+
+Les boutons apparaissent sur `/connexion` et `/inscription`. Ils ne
+fonctionnent qu'une fois le fournisseur **activé dans Supabase** ; tant qu'il
+ne l'est pas, le bouton renvoie un message d'erreur explicite et la connexion
+par mot de passe reste disponible.
+
+### Le piège du rôle
+
+Google et Apple transmettent un nom et un courriel, **jamais** le rôle métier
+(employeur ou travailleur). Sans garde-fou, un employeur arrivant par Google
+se retrouverait avec le tableau de bord travailleur sans s'en apercevoir.
+
+La colonne `profiles.role_confirmed` distingue un rôle **choisi** d'un rôle
+**deviné** :
+
+- inscription par mot de passe → rôle explicite, `role_confirmed = true` ;
+- inscription Google/Apple depuis `/inscription` → le rôle sélectionné voyage
+  dans l'URL de retour et n'est appliqué **que** si le compte n'a pas déjà un
+  rôle confirmé ;
+- connexion Google/Apple sans rôle → `role_confirmed = false`, et
+  `/mon-compte` affiche un sélecteur avant tout le reste.
+
+Un compte existant ne voit **jamais** son rôle réécrit, même si l'URL en
+contient un.
+
+### Configuration Supabase
+
+1. **Authentication → Providers** : activez **Google** (et/ou **Apple**), en
+   collant le *Client ID* et le *Client Secret* du fournisseur.
+2. **Authentication → URL Configuration** :
+   - *Site URL* : `https://jobdirectquebec.com`
+   - *Redirect URLs* : ajoutez `https://jobdirectquebec.com/auth/callback`
+     et, pour le développement, `http://localhost:3000/auth/callback`.
+3. Côté fournisseur, l'URI de redirection autorisée est celle de **Supabase** :
+   `https://<votre-projet>.supabase.co/auth/v1/callback`.
+
+### Google ou Apple ?
+
+| | Google | Apple |
+| --- | --- | --- |
+| Coût | gratuit | **99 USD/an** (Apple Developer Program) |
+| Mise en place | Google Cloud Console, ~15 min | certificat + Service ID, plus long |
+| Couverture au Québec | très large (Android, Gmail) | utilisateurs iPhone |
+
+**Commencez par Google** : gratuit et couvre le plus de monde. Apple devient
+pertinent surtout si vous publiez une application iOS — l'App Store l'exige
+alors dès qu'un autre fournisseur social est proposé.
 
 ---
 
@@ -364,6 +429,8 @@ vercel --prod     # déploiement production
 - [ ] Le **détail** d'une tâche s'affiche **sans** les coordonnées privées du demandeur.
 - [ ] **« Je suis disponible »** crée une candidature visible dans l'admin.
 - [ ] La page **/embaucher** liste des travailleurs (« Prénom N. », sans coordonnées).
+- [ ] *(OAuth)* La connexion Google aboutit sur `/mon-compte` ; un compte neuf
+      voit le **sélecteur de rôle**, et le choix persiste après rechargement.
 - [ ] Une **demande de mise en relation** apparaît dans Admin → Opérations.
 - [ ] *(Stripe)* Le paiement de test aboutit sur `/embaucher/merci`, et la
       demande passe **« Payé »** dans Opérations (preuve que le webhook arrive).

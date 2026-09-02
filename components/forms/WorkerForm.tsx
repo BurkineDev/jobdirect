@@ -44,6 +44,7 @@ export function WorkerForm() {
   const { values, errors, setErrors, handleChange, validateAll } =
     useFormValidation(initialValues, validators);
   const [state, setState] = useState<FormState>({ status: "idle" });
+  const [isPublic, setIsPublic] = useState(true);
   const [pending, startTransition] = useTransition();
 
   function onSubmit(e: React.FormEvent) {
@@ -54,6 +55,7 @@ export function WorkerForm() {
     }
     const fd = new FormData();
     Object.entries(values).forEach(([k, v]) => fd.append(k, v));
+    fd.append("is_public", isPublic ? "true" : "false");
     startTransition(async () => {
       const res = await createWorker({ status: "idle" }, fd);
       setState(res);
@@ -179,6 +181,25 @@ export function WorkerForm() {
           onChange={handleChange("experience")}
         />
       </Field>
+
+      <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <input
+          type="checkbox"
+          checked={isPublic}
+          onChange={(e) => setIsPublic(e.target.checked)}
+          className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+        />
+        <span className="text-sm text-gray-700">
+          <strong className="font-semibold text-ink">
+            Afficher mon profil dans le répertoire public
+          </strong>
+          <br />
+          Les clients peuvent alors vous trouver et vous demander directement.
+          Seuls votre prénom, l&apos;initiale de votre nom, votre ville, vos
+          compétences et vos disponibilités sont visibles. Décochez pour
+          n&apos;être contacté(e) que par notre équipe.
+        </span>
+      </label>
 
       <p className="text-xs text-gray-500">
         En vous inscrivant, votre profil (prénom, ville, compétences,

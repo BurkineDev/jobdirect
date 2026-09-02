@@ -8,6 +8,7 @@ import { isEmail, isPhone } from "@/lib/validation";
 import { useFormValidation, type Validators } from "@/lib/useFormValidation";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
+import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { FormAlert } from "@/components/ui/FormAlert";
 import type { FormState } from "@/lib/types";
 
@@ -75,7 +76,8 @@ export function SignupForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5" noValidate>
+    <>
+      <form onSubmit={onSubmit} className="space-y-5" noValidate>
       <FormAlert state={state} />
 
       {/* Choix du rôle */}
@@ -193,13 +195,20 @@ export function SignupForm() {
       <Button type="submit" size="lg" className="w-full" disabled={pending}>
         {pending ? "Création du compte…" : "Créer mon compte"}
       </Button>
+      </form>
 
-      <p className="text-center text-sm text-gray-600">
+      {/* Le rôle choisi ci-dessus voyage avec la demande OAuth ; s'il n'est
+          pas encore sélectionné, /mon-compte le demandera au retour. */}
+      <div className="mt-6">
+        <OAuthButtons role={values.role} label="Ou créer un compte avec" />
+      </div>
+
+      <p className="mt-6 text-center text-sm text-gray-600">
         Déjà un compte ?{" "}
         <Link href="/connexion" className="font-medium text-brand-600 hover:underline">
           Se connecter
         </Link>
       </p>
-    </form>
+    </>
   );
 }

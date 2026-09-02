@@ -4,6 +4,11 @@
 -- À exécuter dans : Supabase Dashboard > SQL Editor > New query.
 -- Idempotent : peut être ré-exécuté sans erreur.
 --
+-- ⚠️ Ce fichier INSTALLE un schéma neuf. Il ne fait PAS évoluer une base
+-- existante : `create table if not exists` laisse intacte une table déjà
+-- présente, même si ses colonnes ont changé. Pour une base déjà déployée,
+-- appliquez les fichiers de `supabase/migrations/` (voir le README).
+--
 -- Sécurité : RLS est ACTIVÉ sur toutes les tables. L'application n'utilise que
 -- la clé PUBLIQUE (anon) ; la RLS est la frontière de sécurité.
 --   • Public : insertions de formulaires autorisées ; lecture des tâches via la
@@ -74,11 +79,15 @@ create table if not exists public.workers (
   skills       text not null,
   availability text not null,
   experience   text,
+  -- Droit de retrait : false = la fiche n'apparaît pas dans le répertoire
+  -- public (vue `public_workers`). L'inscription vaut consentement, révocable.
+  is_public    boolean not null default true,
   created_at   timestamptz not null default now()
 );
 
 create index if not exists workers_city_idx       on public.workers (city);
 create index if not exists workers_created_at_idx  on public.workers (created_at desc);
+create index if not exists workers_is_public_idx   on public.workers (is_public) where is_public;
 
 -- ----------------------------------------------------------------------------
 -- TABLE : applications (candidatures « Je suis disponible »)
@@ -157,6 +166,9 @@ grant execute on function public.is_admin() to authenticated;
 create table if not exists public.profiles (
   id           uuid primary key references auth.users (id) on delete cascade,
   role         text not null check (role in ('employer','worker')),
+  -- false = rôle deviné (compte Google/Apple, qui ne transmet aucun rôle) :
+  -- l'application demande alors à l'utilisateur de trancher.
+  role_confirmed boolean not null default false,
   full_name    text not null default '',
   email        text,
   phone        text,
@@ -164,9 +176,13 @@ create table if not exists public.profiles (
   skills       text,
   availability text,
   experience   text,
+  -- Même droit de retrait que `workers.is_public`, pour les comptes.
+  is_public    boolean not null default true,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+create index if not exists profiles_is_public_idx on public.profiles (is_public) where is_public;
 
 alter table public.profiles enable row level security;
 
@@ -193,12 +209,21 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, role, full_name, email, phone, city, skills, availability, experience)
+  insert into public.profiles (
+    id, role, role_confirmed, full_name, email, phone, city, skills, availability, experience
+  )
   values (
     new.id,
     case when new.raw_user_meta_data->>'role' in ('employer','worker')
          then new.raw_user_meta_data->>'role' else 'worker' end,
-    coalesce(new.raw_user_meta_data->>'full_name',''),
+    -- `coalesce` indispensable : sans clé « role » (cas Google/Apple),
+    -- l'expression vaut NULL et non false, ce qui violerait le not-null.
+    coalesce(new.raw_user_meta_data->>'role' in ('employer','worker'), false),
+    coalesce(
+      new.raw_user_meta_data->>'full_name',
+      new.raw_user_meta_data->>'name',
+      ''
+    ),
     new.email,
     new.raw_user_meta_data->>'phone',
     new.raw_user_meta_data->>'city',
@@ -337,7 +362,8 @@ select w.id,
        w.experience,
        w.created_at
 from public.workers w
-where coalesce(btrim(w.city), '') <> ''
+where w.is_public
+  and coalesce(btrim(w.city), '') <> ''
   and coalesce(btrim(w.skills), '') <> ''
   and not exists (
     select 1 from public.profiles p
@@ -353,6 +379,7 @@ select p.id,
        p.created_at
 from public.profiles p
 where p.role = 'worker'
+  and p.is_public
   and coalesce(btrim(p.city), '') <> ''
   and coalesce(btrim(p.skills), '') <> '';
 
