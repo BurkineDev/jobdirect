@@ -51,12 +51,21 @@ const validators: Validators<Values> = {
 export function TaskForm({
   defaults,
 }: {
-  defaults?: { contact_name?: string; contact_phone?: string; contact_email?: string };
+  defaults?: {
+    contact_name?: string;
+    contact_phone?: string;
+    contact_email?: string;
+    /** Pré-remplis depuis une page « service × ville ». */
+    city?: string;
+    category?: string;
+  };
 }) {
   const { values, errors, setErrors, handleChange, validateAll } =
     useFormValidation(
       {
         ...initialValues,
+        city: defaults?.city ?? "",
+        category: defaults?.category ?? "",
         contact_name: defaults?.contact_name ?? "",
         contact_phone: defaults?.contact_phone ?? "",
         contact_email: defaults?.contact_email ?? "",

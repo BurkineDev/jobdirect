@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { signIn } from "@/lib/actions/admin";
 import { Field, Input } from "@/components/ui/Field";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -40,6 +41,15 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
           required
         />
       </Field>
+
+      <div className="text-right">
+        <Link
+          href="/mot-de-passe-oublie"
+          className="text-sm font-medium text-brand-600 hover:underline"
+        >
+          Mot de passe oublié ?
+        </Link>
+      </div>
 
       <SubmitButton size="lg" className="w-full" pendingText="Connexion…">
         Se connecter

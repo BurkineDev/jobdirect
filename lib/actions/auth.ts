@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { siteUrl } from "@/lib/site";
+import { requestSiteUrl } from "@/lib/site";
 import { getString, isEmail, isPhone } from "@/lib/validation";
 import { OAUTH_PROVIDERS, type OAuthProvider } from "@/lib/constants";
 import type { FormState, UserRole } from "@/lib/types";
@@ -105,6 +105,111 @@ export async function signInUser(
 }
 
 /**
+ * Demande de réinitialisation du mot de passe.
+ *
+ * Deux choix importants :
+ *
+ * 1. `redirectTo` pointe sur `/auth/callback`, PAS sur la racine du site.
+ *    C'est la cause du symptôme « le lien du courriel me ramène à l'accueil
+ *    et rien ne se passe » : Supabase envoie un code d'autorisation à échanger
+ *    contre une session, et sans route pour l'échanger, le code est ignoré.
+ *    Le paramètre `next` fait ensuite atterrir la personne sur le formulaire
+ *    de nouveau mot de passe.
+ *
+ * 2. La réponse est TOUJOURS la même, que le compte existe ou non. Répondre
+ *    « ce courriel est inconnu » transformerait ce formulaire en outil pour
+ *    savoir qui est inscrit sur JobDirect — un travailleur journalier n'a pas
+ *    à voir son inscription révélée à qui teste son adresse.
+ */
+export async function requestPasswordReset(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const email = getString(formData, "email");
+
+  if (!isEmail(email)) {
+    return {
+      status: "error",
+      message: "Courriel invalide.",
+      fieldErrors: { email: "Courriel invalide." },
+    };
+  }
+
+  const origin = await requestSiteUrl();
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=%2Fnouveau-mot-de-passe`,
+  });
+
+  // L'erreur est journalisée mais jamais montrée : voir le point 2 ci-dessus.
+  if (error) {
+    console.error("requestPasswordReset", error.message);
+  }
+
+  return {
+    status: "success",
+    message:
+      "Si un compte existe avec ce courriel, un lien de réinitialisation vient d'être envoyé. Pensez à regarder vos indésirables.",
+  };
+}
+
+/**
+ * Enregistrement du nouveau mot de passe.
+ *
+ * Ne fonctionne qu'avec une session active — celle que `/auth/callback` vient
+ * de créer en échangeant le code du courriel. Sans elle, le lien est expiré
+ * ou déjà utilisé (les liens Supabase sont à usage unique).
+ */
+export async function updatePassword(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const password = (formData.get("password") as string) ?? "";
+  const confirmation = (formData.get("password_confirmation") as string) ?? "";
+
+  const fieldErrors: Record<string, string> = {};
+  if (password.length < 8) {
+    fieldErrors.password = "Au moins 8 caractères.";
+  }
+  if (password !== confirmation) {
+    fieldErrors.password_confirmation = "Les deux mots de passe diffèrent.";
+  }
+  if (Object.keys(fieldErrors).length > 0) {
+    return {
+      status: "error",
+      message: "Veuillez corriger les champs indiqués.",
+      fieldErrors,
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      status: "error",
+      message:
+        "Ce lien de réinitialisation a expiré ou a déjà été utilisé. Demandez-en un nouveau.",
+    };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    // Cas courant : Supabase refuse un mot de passe trop faible ou identique.
+    return {
+      status: "error",
+      message:
+        "Ce mot de passe a été refusé. Choisissez-en un autre, plus long ou différent du précédent.",
+    };
+  }
+
+  revalidatePath("/mon-compte");
+  redirect("/mon-compte?mdp=change");
+}
+
+/**
  * Connexion via un fournisseur externe (Google, Apple).
  *
  * Le rôle métier n'existe pas chez le fournisseur : on le transporte dans
@@ -124,7 +229,11 @@ export async function signInWithProvider(
   const role = getString(formData, "role");
   const next = safeRedirect(getString(formData, "redirect"));
 
-  const callback = new URL(`${siteUrl()}/auth/callback`);
+  // Origine RÉELLE de la requête, et non la variable d'environnement : c'est
+  // ce qui évite de renvoyer le visiteur sur un domaine où il n'était pas
+  // (« retour sur localhost:3000 ») et ce qui fait fonctionner OAuth sur les
+  // déploiements de prévisualisation, dont l'URL change à chaque commit.
+  const callback = new URL(`${await requestSiteUrl()}/auth/callback`);
   callback.searchParams.set("next", next);
   if (role === "employer" || role === "worker") {
     callback.searchParams.set("role", role);

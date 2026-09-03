@@ -22,9 +22,10 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 6. [Configuration Supabase](#configuration-supabase)
 7. [Connexion Google / Apple](#connexion-google--apple)
 8. [Paiements Stripe](#paiements-stripe)
-9. [Déploiement sur Vercel](#déploiement-sur-vercel)
-10. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
-11. [Évolutions prévues](#évolutions-prévues)
+9. [Modération & publication instantanée](#modération--publication-instantanée)
+10. [Déploiement sur Vercel](#déploiement-sur-vercel)
+11. [Checklist de test avant mise en ligne](#checklist-de-test-avant-mise-en-ligne)
+12. [Évolutions prévues](#évolutions-prévues)
 
 ---
 
@@ -34,6 +35,8 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
 
 - **Accueil** avec proposition de valeur et deux appels à l'action.
 - **Publier une tâche** : titre, description, ville, catégorie, date souhaitée, budget estimé, coordonnées.
+  La tâche est **publiée instantanément** si la modération automatique ne
+  relève rien — voir [Modération & publication instantanée](#modération--publication-instantanée).
 - **Je cherche du travail** : inscription travailleur (nom, téléphone, courriel, ville, compétences, disponibilités, expérience).
 - **Liste des tâches actives** avec filtres par **ville** et **catégorie**.
 - **Détail d'une tâche** + formulaire **« Je suis disponible pour cette tâche »**.
@@ -41,6 +44,26 @@ MVP d'une plateforme locale au Québec qui met en relation des **employeurs / pa
   (« Prénom N. », jamais les coordonnées) + **demande de mise en relation**.
 - **Paiement en ligne** des frais de mise en relation (Stripe), encaissés
   **avant** la mise en contact — voir [Paiements Stripe](#paiements-stripe).
+
+### Référencement (SEO local)
+
+Le canal d'acquisition le moins cher d'un marché local. Tout est généré à
+partir des données réelles — aucun contenu inventé :
+
+- **126 pages « service × ville »** (`/services/[slug]`, ex.
+  `/services/demenagement-montreal`) : une URL par couple catégorie × ville,
+  avec les tâches ouvertes du moment, le nombre de personnes inscrites dans la
+  ville et le budget médian **observé** (affiché seulement au-delà de trois
+  budgets renseignés, pour ne jamais annoncer un faux prix de marché).
+- **Plan des services** (`/services`) : hub de maillage interne.
+- **`sitemap.xml`** et **`robots.txt`** générés (149 URL), espaces
+  authentifiés et pages de remerciement exclus de l'indexation.
+- **Données structurées** : `JobPosting` sur chaque tâche (éligibilité à
+  **Google Jobs**, distribution gratuite), plus `Organization`, `WebSite`,
+  `Service`, `BreadcrumbList` et `CollectionPage`.
+- **Signaux de liquidité** : compteurs réels de travailleurs et de tâches sur
+  l'accueil, les pages de service et le formulaire travailleur — masqués
+  quand ils vaudraient zéro.
 
 ### Comptes utilisateurs (optionnels)
 
@@ -87,11 +110,13 @@ L'application n'utilise **que la clé publique** Supabase. La sécurité repose
 sur la **RLS** (Row Level Security) — aucune clé secrète « service role » n'est
 nécessaire (plus simple à déployer, moins de secrets à gérer).
 
-> **Une seule exception : les paiements.** Un webhook Stripe arrive sans cookie
-> ni session, donc aucune politique RLS ne peut l'autoriser. La clé
-> `SUPABASE_SERVICE_ROLE_KEY` est donc requise **uniquement si vous activez
-> Stripe**, et n'est lue que par `lib/supabase/admin.ts` (webhook + création de
-> session de paiement). Sans Stripe, rien ne change.
+> **Deux exceptions, toutes deux serveur.** (1) Un webhook Stripe arrive sans
+> cookie ni session : aucune politique RLS ne peut l'autoriser. (2) La
+> publication instantanée d'une tâche doit écrire `status = 'active'`, ce que
+> la politique d'insertion publique interdit précisément pour qu'une clé anon
+> volée ne puisse rien publier. La clé `SUPABASE_SERVICE_ROLE_KEY` couvre ces
+> deux cas et n'est lue que par `lib/supabase/admin.ts`. Sans elle, Stripe et
+> la publication instantanée restent inactifs — et rien d'autre ne change.
 
 - **Public** : insertions de formulaires autorisées par la RLS (les tâches sont
   forcées au statut `pending`). La lecture des tâches passe par la vue
@@ -110,8 +135,21 @@ nécessaire (plus simple à déployer, moins de secrets à gérer).
   mise en relation ne peut **pas** être insérée en se déclarant payée : seul le
   webhook Stripe (clé service role) fait passer un paiement à « payé », et un
   trigger SQL propage l'encaissement vers la demande ou la commission.
+- **Modération** : tout texte destiné à devenir public (description d'une
+  tâche, compétences d'un travailleur) traverse `lib/moderation.ts`, qui
+  masque numéros, courriels, liens et identifiants sociaux. C'est ce qui
+  protège le modèle d'affaires : une coordonnée publiée rendrait la mise en
+  relation — le seul service facturé — sans valeur.
+- **Anti-spam** : les formulaires publics passent par la fonction SQL
+  `claim_submission_slot` (quota par courriel et par heure). La table
+  `submission_log` qu'elle alimente n'a **aucune politique RLS** : elle est
+  donc illisible, même avec la clé anon.
 - Toutes les écritures passent par des **Server Actions** qui valident les
   entrées avant insertion.
+- **Lectures publiques mises en cache** : `lib/market.ts` lit les vues
+  publiques via un client anon **sans cookie** (`lib/supabase/public.ts`),
+  seule façon de les envelopper dans `unstable_cache`. Le tag `market` purge
+  l'ensemble dès qu'une tâche est activée ou qu'un profil change.
 
 > 🔒 Voir [`supabase/schema.sql`](supabase/schema.sql) pour les politiques RLS,
 > la vue publique et la fonction `is_admin()`.
@@ -130,6 +168,8 @@ app/
     embaucher/[id]/          Profil + demande de mise en relation (payante)
     embaucher/merci/         Retour Stripe (frais de mise en relation)
     merci-paiement/          Retour Stripe (commission de tâche)
+    services/                Plan des services (hub SEO)
+    services/[slug]/         Page « service × ville » (126 pages)
     inscription/             Création de compte (employeur / travailleur)
     connexion/               Connexion utilisateur
     mon-compte/              Tableau de bord (protégé)
@@ -149,12 +189,18 @@ components/
   admin/                     Composants de l'espace admin
   site/                      Header (auth-aware), footer, logo, menu compte
 lib/
-  supabase/                  Clients : client (navigateur) / server / middleware / admin
+  supabase/                  Clients : client (navigateur) / server / middleware / admin / public
   actions/                   Server Actions (tasks, workers, applications, auth, profile, admin, payments)
   stripe.ts, payments.ts     Configuration Stripe + création des sessions de paiement
+  moderation.ts              Masquage des coordonnées dans les textes publics
+  submissions.ts             Garde anti-spam + promotion d'une tâche en « active »
+  seo.ts                     Slugs « service × ville », copie FR, données structurées
+  market.ts                  Lectures publiques mises en cache (compteurs, pages service)
   queries.ts                 Lectures de données (serveur)
   constants.ts               Villes, catégories, statuts (FR)
   types.ts, format.ts, validation.ts, auth.ts, useFormValidation.ts
+  robots.ts                  robots.txt généré
+  sitemap.ts                 sitemap.xml généré (pages fixes + services + tâches)
 proxy.ts                     Routing Middleware (sessions ; protège /admin et /mon-compte)
 supabase/schema.sql          Schéma SQL complet (installation neuve)
 supabase/migrations/         Migrations pour faire évoluer une base existante
@@ -200,7 +246,7 @@ Sans elles, l'encaissement reste manuel (Interac) et rien d'autre ne change.
 | ------------------------------- | -------- | -------------------------------------------------------------------------- |
 | `STRIPE_SECRET_KEY`             | ❌ non   | Clé secrète Stripe (`sk_...`).                                             |
 | `STRIPE_WEBHOOK_SECRET`         | ❌ non   | Secret de signature du webhook (`whsec_...`).                              |
-| `SUPABASE_SERVICE_ROLE_KEY`     | ❌ non   | Clé service role — **requise seulement pour Stripe** (voir plus haut).      |
+| `SUPABASE_SERVICE_ROLE_KEY`     | ❌ non   | Clé service role — requise pour **Stripe** *et* pour la **publication instantanée** des tâches (voir plus bas). |
 | `CONNECTION_FEE_CAD`            | ❌ non   | Frais de mise en relation en dollars (défaut : `24`).                      |
 | `NEXT_PUBLIC_SITE_URL`          | ✅ oui   | URL publique du site (retours Stripe). Déduite automatiquement sur Vercel. |
 
@@ -303,6 +349,44 @@ contient un.
 3. Côté fournisseur, l'URI de redirection autorisée est celle de **Supabase** :
    `https://<votre-projet>.supabase.co/auth/v1/callback`.
 
+### « La connexion Google me renvoie sur localhost:3000 »
+
+C'est le symptôme le plus courant, et la cause est **côté Supabase**, pas
+dans le code : quand Supabase reçoit une URL de retour qui ne figure **pas**
+dans sa liste blanche, il l'ignore *silencieusement* et renvoie le visiteur
+vers le **Site URL** configuré. Si ce Site URL est resté sur
+`http://localhost:3000`, tout le monde atterrit sur localhost.
+
+**Vérifiez, dans cet ordre :**
+
+1. **Supabase → Authentication → URL Configuration**
+   - *Site URL* doit être `https://jobdirectquebec.com` (et **non** localhost).
+   - *Redirect URLs* doit contenir **exactement** :
+     ```
+     https://jobdirectquebec.com/auth/callback
+     http://localhost:3000/auth/callback
+     https://*.vercel.app/auth/callback
+     ```
+     La troisième ligne est ce qui fait fonctionner la connexion sur les
+     déploiements de prévisualisation.
+2. **Le diagnostic de l'application** : connecté à `/admin`, ouvrez
+   `/api/diagnostic` et comparez `redirections.urlCanonique` (figée, pour le
+   SEO) et `redirections.origineDeCetteRequete` (celle utilisée pour les
+   retours). Si la seconde est correcte et que Google renvoie quand même
+   ailleurs, le problème est bien au point 1.
+
+> **Côté code, l'URL de retour ne dépend plus d'une variable
+> d'environnement.** Elle est désormais lue sur la requête réelle
+> (`requestSiteUrl()` dans [`lib/site.ts`](lib/site.ts)), filtrée par une
+> liste blanche d'hôtes — indispensable car l'en-tête `Host` est contrôlable
+> par le client, et une URL de retour OAuth détournée livrerait le code
+> d'autorisation à un tiers. Un hôte non local produit toujours du `https`,
+> même si `x-forwarded-proto` prétend le contraire.
+>
+> À ne pas confondre avec `siteUrl()`, qui reste **figée** : les balises
+> `canonical`, le sitemap et les données structurées doivent toujours
+> désigner le domaine de production, jamais une URL de prévisualisation.
+
 ### Google ou Apple ?
 
 | | Google | Apple |
@@ -350,8 +434,19 @@ déclarer payé.
    - Événements : `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`, `charge.refunded`
    - Copiez le *Signing secret* dans `STRIPE_WEBHOOK_SECRET`.
-3. **Clé service role** — Supabase → *Project Settings → API Keys → service_role*
-   → `SUPABASE_SERVICE_ROLE_KEY`. ⚠️ Jamais de préfixe `NEXT_PUBLIC_`.
+3. **Clé serveur Supabase** — Supabase → *Project Settings → API Keys*.
+   L'application accepte **deux noms**, et se contente du premier trouvé :
+   - `SUPABASE_SERVICE_ROLE_KEY` (clé `service_role` historique) ;
+   - `SUPABASE_SECRET_KEY` (nouveau nom Supabase, `sb_secret_…` — c'est
+     celui que provisionne automatiquement l'intégration Supabase pour
+     Vercel).
+
+   ⚠️ Jamais de préfixe `NEXT_PUBLIC_`. **Piège vécu** : les deux clés
+   Stripe étaient définies, l'intégration Supabase avait posé
+   `SUPABASE_SECRET_KEY`, et le paiement par carte restait inactif sans
+   aucun signal parce que le code ne cherchait que l'autre nom. C'est
+   désormais impossible, et `/api/diagnostic` indique sous quel nom la clé
+   a été trouvée (`cleServiceRole.nomUtilise`).
 4. **URL du site** — `NEXT_PUBLIC_SITE_URL` en local ; déduite automatiquement
    sur Vercel.
 
@@ -405,6 +500,78 @@ commission en « à encaisser ».
 
 ---
 
+## Modération & publication instantanée
+
+### Le problème que ça règle
+
+Avant, chaque tâche attendait un clic dans `/admin` pour devenir visible. Ce
+clic était le seul rempart contre la fuite de coordonnées dans un texte
+public — mais il plafonnait la croissance et rendait intenable la promesse
+faite au client (« publiée après validation », à 2 h du matin). Or la demande
+de tâches ponctuelles est **urgente par nature** : un déménagement demain
+matin ne supporte pas six heures d'attente.
+
+### Comment ça marche
+
+1. La tâche est **toujours insérée en `pending`** — c'est tout ce que la
+   politique RLS d'insertion publique autorise.
+2. `lib/moderation.ts` inspecte le titre et la description : numéros de
+   téléphone (tous formats québécois), courriels, liens, domaines nus,
+   identifiants sociaux, plus une liste de formulations de contournement
+   (« appelez-moi », « textez-moi », « WhatsApp »…).
+3. **Rien à signaler** → la tâche est promue en `active` côté serveur (clé
+   service role) et devient visible immédiatement.
+4. **Quelque chose à signaler** → elle reste en `pending` et apparaît dans
+   *Admin → Opérations → Tâches à relire*, avec le motif, le texte d'origine
+   et le texte qui serait publié, côte à côte.
+
+> **Pourquoi ce détour plutôt qu'une insertion directe en `active` ?** La clé
+> anon est publique. Autoriser `active` à l'insertion permettrait à n'importe
+> qui d'écrire directement dans l'API Supabase et de publier du contenu —
+> coordonnées comprises — sans jamais traverser la modération.
+
+Une soumission dont on a retiré des coordonnées n'est **jamais** auto-publiée,
+même si le texte nettoyé est sûr : publier « Contactez-moi au [coordonnées
+retirées] » produirait une annonce absurde. Mieux vaut un délai.
+
+### Ce que voit la personne
+
+Quand du texte a été masqué, le message de confirmation le dit franchement et
+explique pourquoi (« c'est notre équipe qui vous met en contact, vos
+coordonnées ne sont jamais publiques ») plutôt que de la laisser le découvrir
+en relisant son annonce.
+
+### Anti-spam
+
+Les quatre formulaires publics passent par la fonction SQL
+`claim_submission_slot`, avec un quota par courriel et par heure :
+
+| Formulaire | Quota / heure | Raison |
+| --- | --- | --- |
+| Publier une tâche | 5 | Un particulier publie rarement plus. |
+| Inscription travailleur | 3 | On ne s'inscrit qu'une fois. |
+| Candidature | 15 | Postuler beaucoup est **légitime**. |
+| Mise en relation | 5 | |
+
+Le quota et la fenêtre sont **codés en dur dans la fonction** : elle est
+exécutable par le rôle `anon`, et un appelant libre de choisir sa propre
+limite n'aurait plus de limite. En cas d'erreur (migration non appliquée,
+par exemple), la garde **laisse passer** : un anti-spam qui tombe ne doit
+jamais fermer le site.
+
+### Activation
+
+```sql
+-- Supabase > SQL Editor : appliquer la migration
+-- supabase/migrations/20260902c_moderation_and_autopublish.sql
+```
+
+Puis définir `SUPABASE_SERVICE_ROLE_KEY`. Sans cette clé, la modération et
+l'anti-spam fonctionnent toujours, mais la publication reste manuelle — la
+page Opérations l'indique explicitement.
+
+---
+
 ## Déploiement sur Vercel
 
 1. Poussez le code sur un dépôt GitHub/GitLab/Bitbucket.
@@ -444,7 +611,13 @@ vercel --prod     # déploiement production
 
 - [ ] L'accueil s'affiche avec les deux boutons (Publier / Je cherche du travail).
 - [ ] **Publier une tâche** : la soumission affiche le message de confirmation.
-- [ ] La tâche soumise apparaît dans l'admin au statut **« En attente »** (pas encore publique).
+- [ ] Une tâche **propre** est visible immédiatement sur `/taches` (publication
+      instantanée) — à condition que `SUPABASE_SERVICE_ROLE_KEY` soit définie.
+- [ ] Une tâche contenant « Appelez-moi au 514-555-0142 » reste en
+      **« En attente »**, apparaît dans *Opérations → Tâches à relire* avec le
+      motif, et son numéro est masqué dans le texte publiable.
+- [ ] Envoyer 6 tâches de suite avec le même courriel : la 6ᵉ est refusée avec
+      le message anti-pourriel.
 - [ ] **Je cherche du travail** : l'inscription fonctionne et le travailleur apparaît dans l'admin.
 - [ ] La page **/taches** liste uniquement les tâches **actives**.
 - [ ] Les **filtres** ville/catégorie mettent la liste à jour.
@@ -460,6 +633,11 @@ vercel --prod     # déploiement production
       « Payée » automatiquement après règlement.
 - [ ] La validation des formulaires fonctionne (courriel/téléphone invalides, champs requis).
 - [ ] Une URL de tâche non active / inexistante renvoie la page 404.
+- [ ] `/robots.txt` répond et interdit `/admin` et `/mon-compte`.
+- [ ] `/sitemap.xml` répond et contient les 126 pages `/services/…`.
+- [ ] `/services/demenagement-montreal` s'affiche ; un slug inventé fait 404.
+- [ ] Une fiche de tâche contient un bloc `JobPosting` valide
+      (tester avec le [Rich Results Test](https://search.google.com/test/rich-results)).
 
 ### Espace admin
 
@@ -483,6 +661,13 @@ vercel --prod     # déploiement production
 ## Évolutions prévues
 
 ✅ **Paiements Stripe** — livré (voir [Paiements Stripe](#paiements-stripe)).
+✅ **SEO local** — livré (126 pages « service × ville », sitemap, `JobPosting`).
+✅ **Modération & publication instantanée** — livré (voir la section dédiée).
+
+Le chantier suivant, et le plus rentable : les **notifications**. Aujourd'hui
+le site n'envoie aucun courriel — ni à l'employeur quand une candidature
+arrive, ni au travailleur quand une tâche paraît dans sa ville. C'est le
+principal frein qui reste.
 
 L'architecture est pensée pour accueillir, sans refonte majeure :
 

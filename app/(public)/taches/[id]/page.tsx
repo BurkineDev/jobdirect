@@ -6,6 +6,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { formatBudget, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { ApplicationForm } from "@/components/forms/ApplicationForm";
+import { jobPostingSchema, jsonLd, servicePath, slugify } from "@/lib/seo";
+import { siteUrl } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,27 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const task = await getActiveTask(id);
-  return { title: task ? task.title : "Tâche introuvable" };
+  if (!task) return { title: "Tâche introuvable", robots: { index: false } };
+
+  // La description de la tâche fait le meilleur extrait possible : c'est le
+  // texte qu'a écrit le demandeur, donc celui qui décrit vraiment le besoin.
+  const description = `${task.category} à ${task.city}. ${task.description}`
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+  const url = `${siteUrl()}/taches/${task.id}`;
+
+  return {
+    title: `${task.title} — ${task.city}`,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title: `${task.title} · ${task.city}`,
+      description,
+      url,
+      locale: "fr_CA",
+      type: "article",
+    },
+  };
 }
 
 export default async function TaskDetailPage({
@@ -33,8 +55,44 @@ export default async function TaskDetailPage({
     ? { name: profile.full_name, phone: profile.phone ?? "", email: profile.email }
     : undefined;
 
+  const base = siteUrl();
+  // Lien vers la page d'atterrissage correspondante : chaque tâche transmet
+  // ainsi un peu d'autorité à la page qui, elle, se classe durablement.
+  const serviceSlug = `${slugify(task.category)}-${slugify(task.city)}`;
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: jsonLd(jobPostingSchema(task, base)),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: jsonLd({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Accueil", item: base },
+              {
+                "@type": "ListItem",
+                position: 2,
+                name: "Tâches",
+                item: `${base}/taches`,
+              },
+              {
+                "@type": "ListItem",
+                position: 3,
+                name: task.title,
+                item: `${base}/taches/${task.id}`,
+              },
+            ],
+          }),
+        }}
+      />
+
       <Link
         href="/taches"
         className="inline-flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-brand-600"
@@ -87,6 +145,17 @@ export default async function TaskDetailPage({
               {task.description}
             </p>
           </div>
+
+          <p className="mt-8 text-sm text-gray-500">
+            Cette tâche vous a échappé ?{" "}
+            <Link
+              href={servicePath(serviceSlug)}
+              className="font-medium text-brand-600 hover:underline"
+            >
+              Voir toutes les demandes de {task.category.toLowerCase()} à{" "}
+              {task.city}
+            </Link>
+          </p>
         </article>
 
         {/* Candidature */}

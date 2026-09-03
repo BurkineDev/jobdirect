@@ -95,6 +95,11 @@ export async function createCommissionPaymentLink(
         },
       ],
       metadata: { kind: "commission", commission_id: commissionId },
+      // Ici, et contrairement aux frais de mise en relation, on garde l'URL
+      // CANONIQUE et non l'origine de la requête : ce lien est créé par
+      // l'admin puis envoyé au client, qui l'ouvrira plus tard depuis son
+      // propre appareil. Le renvoyer sur l'origine de l'admin l'expédierait
+      // sur une prévisualisation ou sur localhost.
       success_url: `${siteUrl()}/merci-paiement?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/`,
     });

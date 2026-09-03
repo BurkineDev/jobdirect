@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAdminUser, isAdminEmail } from "@/lib/auth";
@@ -13,6 +13,7 @@ import {
   type ConnectionRequestStatusValue,
   type TaskStatus,
 } from "@/lib/constants";
+import { MARKET_TAG } from "@/lib/market";
 import type { FormState } from "@/lib/types";
 
 /** Empêche d'exécuter une action admin sans être authentifié et autorisé. */
@@ -85,6 +86,11 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   revalidatePath("/admin/operations");
   revalidatePath("/taches");
   revalidatePath(`/taches/${taskId}`);
+  // Activer ou retirer une tâche change les compteurs publics et les pages
+  // « service × ville ». `updateTag` (et non `revalidateTag`) parce que
+  // l'admin vérifie systématiquement que la tâche est bien visible juste
+  // après : il ne doit pas tomber sur une version périmée.
+  updateTag(MARKET_TAG);
 }
 
 export async function updateApplicationStatus(
@@ -151,6 +157,36 @@ export async function reopenCommission(commissionId: string) {
     .eq("id", commissionId);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/operations");
+}
+
+/**
+ * Supprime définitivement une tâche, ainsi que ses candidatures et ses notes
+ * (supprimées en cascade par les clés étrangères du schéma).
+ *
+ * Pourquoi une suppression et pas seulement le statut « Annulée » : annuler
+ * retire la tâche du public mais conserve la ligne — et avec elle le nom, le
+ * téléphone et le courriel du demandeur, indéfiniment. Trois situations
+ * l'exigent :
+ *   • le pourriel, qui peut désormais atteindre le site public puisque la
+ *     publication est automatique ;
+ *   • une demande d'effacement au titre de la Loi 25, qui n'est pas
+ *     satisfaite par une simple mise en retrait ;
+ *   • les tâches d'essai, qu'on ne veut pas traîner en base.
+ *
+ * Irréversible : le bouton correspondant demande confirmation.
+ */
+export async function deleteTask(taskId: string) {
+  await assertAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/operations");
+  revalidatePath("/admin/candidatures");
+  revalidatePath("/taches");
+  // La tâche disparaît des compteurs publics et des pages « service × ville ».
+  updateTag(MARKET_TAG);
 }
 
 /** Supprime une commission (ex. assignation annulée). */

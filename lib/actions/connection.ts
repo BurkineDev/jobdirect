@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createConnectionCheckout } from "@/lib/payments";
 import { connectionFee, isStripeEnabled } from "@/lib/stripe";
 import { getString, isEmail, isPhone } from "@/lib/validation";
+import { RATE_LIMIT_MESSAGE, claimSubmissionSlot } from "@/lib/submissions";
 import type { FormState } from "@/lib/types";
 
 /**
@@ -39,6 +40,10 @@ export async function createConnectionRequest(
       message: "Veuillez corriger les champs indiqués.",
       fieldErrors,
     };
+  }
+
+  if (!(await claimSubmissionSlot("connection", clientEmail))) {
+    return { status: "error", message: RATE_LIMIT_MESSAGE };
   }
 
   // Identifiant généré côté serveur : la RLS n'autorise pas le visiteur
