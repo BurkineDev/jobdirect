@@ -9,9 +9,11 @@ import { suggestMatches } from "@/lib/matching";
 import { formatBudget, formatDate, formatDateTime } from "@/lib/format";
 import { CONNECTION_REQUEST_STATUS_META } from "@/lib/constants";
 import { isStripeEnabled } from "@/lib/stripe";
+import { isAutoPublishEnabled } from "@/lib/submissions";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/admin/StatCard";
 import { ActivateTaskButton } from "@/components/admin/ActivateTaskButton";
+import { DeleteTaskButton } from "@/components/admin/DeleteTaskButton";
 import { TaskStatusSelect } from "@/components/admin/TaskStatusSelect";
 import { CommissionRow } from "@/components/admin/CommissionRow";
 import { ConnectionRequestStatusSelect } from "@/components/admin/ConnectionRequestStatusSelect";
@@ -25,6 +27,7 @@ export default async function AdminOperationsPage() {
   ]);
 
   const stripeEnabled = isStripeEnabled();
+  const autoPublishEnabled = isAutoPublishEnabled();
   const pending = tasks.filter((t) => t.status === "pending");
   const active = tasks.filter((t) => t.status === "active");
   const toCollect = commissions.filter((c) => c.status === "pending");
@@ -166,37 +169,87 @@ export default async function AdminOperationsPage() {
         </section>
       )}
 
-      {/* 1. File de validation */}
+      {/* 1. File de validation — ne contient plus que les cas signalés */}
       <section className="space-y-4">
-        <h2 className="text-lg font-bold text-ink">
-          1 · Tâches à valider{" "}
-          <span className="font-normal text-gray-400">({pending.length})</span>
-        </h2>
+        <div>
+          <h2 className="text-lg font-bold text-ink">
+            1 · Tâches à relire{" "}
+            <span className="font-normal text-gray-400">
+              ({pending.length})
+            </span>
+          </h2>
+          <p className="text-sm text-gray-500">
+            Les soumissions propres sont désormais publiées automatiquement.
+            {autoPublishEnabled
+              ? " Ne restent ici que celles que la modération a signalées."
+              : " ⚠ La publication instantanée est INACTIVE (clé service role absente) : tout arrive donc encore ici."}
+          </p>
+        </div>
         {pending.length === 0 ? (
           <p className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-500">
-            Rien à valider. Publiez de nouvelles tâches via votre réseau (voir{" "}
+            Rien à relire. Publiez de nouvelles tâches via votre réseau (voir{" "}
             <code className="rounded bg-gray-100 px-1">MARKETING.md</code>).
           </p>
         ) : (
           pending.map((task) => (
             <div
               key={task.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4"
+              className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4"
             >
-              <div className="min-w-0">
-                <p className="font-semibold text-ink">{task.title}</p>
-                <p className="text-sm text-gray-500">
-                  {task.city} · {task.category} · {formatDate(task.desired_date)} ·{" "}
-                  {formatBudget(task.budget_estimate)} — {task.contact_name},{" "}
-                  <a
-                    href={`tel:${task.contact_phone}`}
-                    className="text-brand-600 hover:underline"
-                  >
-                    {task.contact_phone}
-                  </a>
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink">{task.title}</p>
+                  <p className="text-sm text-gray-500">
+                    {task.city} · {task.category} ·{" "}
+                    {formatDate(task.desired_date)} ·{" "}
+                    {formatBudget(task.budget_estimate)} — {task.contact_name},{" "}
+                    <a
+                      href={`tel:${task.contact_phone}`}
+                      className="text-brand-600 hover:underline"
+                    >
+                      {task.contact_phone}
+                    </a>
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <ActivateTaskButton taskId={task.id} />
+                  {/* Une soumission signalée est souvent du pourriel :
+                      la refuser doit être aussi immédiat que l'accepter. */}
+                  <DeleteTaskButton taskId={task.id} title={task.title} />
+                </div>
               </div>
-              <ActivateTaskButton taskId={task.id} />
+
+              {/* Pourquoi cette tâche est ici, et ce que la personne avait
+                  réellement écrit : de quoi trancher en dix secondes. */}
+              {task.moderation_reasons &&
+                task.moderation_reasons.length > 0 && (
+                  <div className="rounded-lg bg-white p-3 ring-1 ring-inset ring-amber-200">
+                    <p className="text-xs font-semibold uppercase text-amber-700">
+                      Signalé par la modération
+                    </p>
+                    <ul className="mt-1 list-inside list-disc text-sm text-gray-700">
+                      {task.moderation_reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                    {task.description_raw && (
+                      <div className="mt-2 border-t border-gray-100 pt-2">
+                        <p className="text-xs font-semibold uppercase text-gray-400">
+                          Texte d&apos;origine (avant masquage)
+                        </p>
+                        <p className="mt-1 whitespace-pre-line text-sm text-gray-600">
+                          {task.description_raw}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold uppercase text-gray-400">
+                          Texte qui sera publié
+                        </p>
+                        <p className="mt-1 whitespace-pre-line text-sm text-gray-800">
+                          {task.description}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
             </div>
           ))
         )}
@@ -232,7 +285,10 @@ export default async function AdminOperationsPage() {
                     </p>
                   </div>
                   {/* Quand l'entente est conclue : passer à « Assignée » crée la commission. */}
-                  <TaskStatusSelect taskId={task.id} status={task.status} />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <TaskStatusSelect taskId={task.id} status={task.status} />
+                    <DeleteTaskButton taskId={task.id} title={task.title} />
+                  </div>
                 </div>
 
                 <div className="mt-3 border-t border-gray-100 pt-3">

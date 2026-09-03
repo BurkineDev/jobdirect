@@ -18,6 +18,12 @@ export interface Task {
   contact_phone: string;
   contact_email: string;
   status: TaskStatus;
+  /** Description d'origine, avant masquage des coordonnées. NULL = rien retiré. */
+  description_raw: string | null;
+  /** Motifs du signalement de modération. NULL = soumission propre. */
+  moderation_reasons: string[] | null;
+  /** true = publiée automatiquement, sans validation humaine. */
+  auto_published: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +39,10 @@ export interface Worker {
   experience: string | null;
   /** false = retiré du répertoire public (vue `public_workers`). */
   is_public: boolean;
+  /** Motifs du signalement de modération. NULL = inscription propre. */
+  moderation_reasons: string[] | null;
+  /** Compétences d'origine, avant masquage des coordonnées. */
+  skills_raw: string | null;
   created_at: string;
 }
 

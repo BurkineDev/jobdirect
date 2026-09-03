@@ -1,5 +1,6 @@
 import "server-only";
 import Stripe from "stripe";
+import { hasServiceRoleKey } from "./supabase/admin";
 
 export { siteUrl } from "./site";
 
@@ -33,9 +34,10 @@ export function getStripe(): Stripe | null {
  * Sans les deux, on retombe proprement sur le circuit Interac.
  */
 export function isStripeEnabled(): boolean {
-  return Boolean(
-    process.env.STRIPE_SECRET_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
+  // `hasServiceRoleKey()` accepte SUPABASE_SERVICE_ROLE_KEY comme
+  // SUPABASE_SECRET_KEY : c'est ce dernier nom que provisionne l'intégration
+  // Supabase pour Vercel, et son absence rendait Stripe muet sans signal.
+  return Boolean(process.env.STRIPE_SECRET_KEY && hasServiceRoleKey());
 }
 
 /** Frais de mise en relation facturés au client, en dollars. */

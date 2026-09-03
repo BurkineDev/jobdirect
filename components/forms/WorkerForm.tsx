@@ -40,9 +40,17 @@ const validators: Validators<Values> = {
   availability: (v) => (!v.trim() ? "Indiquez vos disponibilités." : undefined),
 };
 
-export function WorkerForm() {
+export function WorkerForm({
+  defaults,
+}: {
+  /** Ville pré-remplie depuis une page « service × ville ». */
+  defaults?: { city?: string };
+} = {}) {
   const { values, errors, setErrors, handleChange, validateAll } =
-    useFormValidation(initialValues, validators);
+    useFormValidation(
+      { ...initialValues, city: defaults?.city ?? "" },
+      validators,
+    );
   const [state, setState] = useState<FormState>({ status: "idle" });
   const [isPublic, setIsPublic] = useState(true);
   const [pending, startTransition] = useTransition();

@@ -1,7 +1,11 @@
 import { getAdminUser } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  createAdminClient,
+  hasServiceRoleKey,
+  serviceRoleKey,
+} from "@/lib/supabase/admin";
 import { connectionFee, isStripeEnabled } from "@/lib/stripe";
-import { siteUrl } from "@/lib/site";
+import { requestSiteUrl, siteUrl } from "@/lib/site";
 
 /**
  * Diagnostic de configuration — réservé aux administrateurs.
@@ -30,7 +34,12 @@ export async function GET() {
     NEXT_PUBLIC_SUPABASE_URL: present("NEXT_PUBLIC_SUPABASE_URL"),
     NEXT_PUBLIC_SUPABASE_ANON_KEY: present("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     ADMIN_EMAILS: present("ADMIN_EMAILS"),
+    // Les DEUX noms acceptés pour la clé serveur : l'ancien nom Supabase et
+    // celui que provisionne l'intégration Supabase pour Vercel. Les afficher
+    // séparément est le seul moyen de repérer le piège « la clé est bien là,
+    // mais sous l'autre nom ».
     SUPABASE_SERVICE_ROLE_KEY: present("SUPABASE_SERVICE_ROLE_KEY"),
+    SUPABASE_SECRET_KEY: present("SUPABASE_SECRET_KEY"),
     STRIPE_SECRET_KEY: present("STRIPE_SECRET_KEY"),
     STRIPE_WEBHOOK_SECRET: present("STRIPE_WEBHOOK_SECRET"),
     NEXT_PUBLIC_SITE_URL: present("NEXT_PUBLIC_SITE_URL"),
@@ -66,17 +75,19 @@ export async function GET() {
   const problems: string[] = [];
   if (!env.STRIPE_SECRET_KEY)
     problems.push("STRIPE_SECRET_KEY absente de ce déploiement.");
-  if (!env.SUPABASE_SERVICE_ROLE_KEY)
-    problems.push("SUPABASE_SERVICE_ROLE_KEY absente de ce déploiement.");
+  if (!hasServiceRoleKey())
+    problems.push(
+      "Aucune clé serveur Supabase : définissez SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_SECRET_KEY). Sans elle, le paiement par carte ET la publication instantanée restent inactifs.",
+    );
   if (!env.STRIPE_WEBHOOK_SECRET)
     problems.push("STRIPE_WEBHOOK_SECRET absente : le webhook répondra 503.");
-  if (env.SUPABASE_SERVICE_ROLE_KEY && !serviceRoleWorks)
+  if (hasServiceRoleKey() && !serviceRoleWorks)
     problems.push(
       `Clé service role présente mais refusée par Supabase : ${serviceRoleError ?? "erreur inconnue"}`,
     );
   if (!env.NEXT_PUBLIC_SITE_URL)
     problems.push(
-      `NEXT_PUBLIC_SITE_URL absente : les retours Stripe et OAuth utiliseront ${siteUrl()}`,
+      `NEXT_PUBLIC_SITE_URL absente : les URL canoniques utiliseront ${siteUrl()}`,
     );
   if (stripeMode === "live")
     problems.push("Stripe est en mode LIVE : les paiements sont réels.");
@@ -102,9 +113,31 @@ export async function GET() {
         fraisMiseEnRelation: connectionFee(),
       },
       cleServiceRole: {
-        configuree: env.SUPABASE_SERVICE_ROLE_KEY,
+        configuree: hasServiceRoleKey(),
+        // Sous quel nom elle a été trouvée : répond directement à
+        // « pourquoi Stripe est inactif alors que j'ai tout défini ? ».
+        nomUtilise: process.env.SUPABASE_SERVICE_ROLE_KEY
+          ? "SUPABASE_SERVICE_ROLE_KEY"
+          : process.env.SUPABASE_SECRET_KEY
+            ? "SUPABASE_SECRET_KEY"
+            : null,
+        longueur: serviceRoleKey()?.length ?? 0,
         fonctionnelle: serviceRoleWorks,
         erreur: serviceRoleError,
+      },
+      publicationInstantanee: {
+        active: hasServiceRoleKey(),
+        remarque: hasServiceRoleKey()
+          ? "Les tâches propres sont publiées sans validation manuelle."
+          : "Inactive : toutes les tâches attendent une validation manuelle.",
+      },
+      redirections: {
+        // La distinction qui explique le « retour sur localhost:3000 » :
+        // canonique (SEO, figée) vs origine réelle de la requête (retours).
+        urlCanonique: siteUrl(),
+        origineDeCetteRequete: await requestSiteUrl(),
+        rappel:
+          "Si la connexion Google renvoie ailleurs, la cause est côté Supabase : Authentication > URL Configuration (Site URL + Redirect URLs).",
       },
       diagnostic: problems,
     },

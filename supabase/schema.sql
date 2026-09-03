@@ -50,6 +50,14 @@ create table if not exists public.tasks (
   contact_email   text not null,
   status          text not null default 'pending'
                     check (status in ('pending','active','assigned','completed','cancelled')),
+  -- Modération automatique (voir lib/moderation.ts) :
+  --   description_raw    = texte d'origine, avant masquage des coordonnées
+  --                        (pièce à conviction d'un contournement) ;
+  --   moderation_reasons = motifs du signalement (NULL = soumission propre) ;
+  --   auto_published     = passée en « active » sans regard humain.
+  description_raw    text,
+  moderation_reasons text[],
+  auto_published     boolean not null default false,
   -- Compte employeur associé (NULL = tâche soumise sans compte)
   user_id         uuid references auth.users (id) on delete set null,
   created_at      timestamptz not null default now(),
@@ -61,6 +69,8 @@ create index if not exists tasks_city_idx        on public.tasks (city);
 create index if not exists tasks_category_idx    on public.tasks (category);
 create index if not exists tasks_created_at_idx  on public.tasks (created_at desc);
 create index if not exists tasks_user_id_idx     on public.tasks (user_id);
+create index if not exists tasks_flagged_idx     on public.tasks (created_at desc)
+  where moderation_reasons is not null;
 
 drop trigger if exists tasks_set_updated_at on public.tasks;
 create trigger tasks_set_updated_at
@@ -82,8 +92,20 @@ create table if not exists public.workers (
   -- Droit de retrait : false = la fiche n'apparaît pas dans le répertoire
   -- public (vue `public_workers`). L'inscription vaut consentement, révocable.
   is_public    boolean not null default true,
+  -- Mêmes colonnes de modération que `tasks` : `skills`, `availability` et
+  -- `experience` alimentent la vue publique `public_workers`.
+  moderation_reasons text[],
+  skills_raw   text,
+  -- Notifications (LCAP) : consentement révocable + jeton du lien de
+  -- désabonnement. Un UUID, jamais le courriel : un lien de désabonnement
+  -- traîne dans les journaux et ne doit révéler aucune adresse.
+  notify_enabled    boolean not null default true,
+  unsubscribe_token uuid not null default gen_random_uuid(),
   created_at   timestamptz not null default now()
 );
+
+create unique index if not exists workers_unsubscribe_token_idx
+  on public.workers (unsubscribe_token);
 
 create index if not exists workers_city_idx       on public.workers (city);
 create index if not exists workers_created_at_idx  on public.workers (created_at desc);
@@ -178,11 +200,16 @@ create table if not exists public.profiles (
   experience   text,
   -- Même droit de retrait que `workers.is_public`, pour les comptes.
   is_public    boolean not null default true,
+  -- Notifications (LCAP), comme pour `workers`.
+  notify_enabled    boolean not null default true,
+  unsubscribe_token uuid not null default gen_random_uuid(),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
 
 create index if not exists profiles_is_public_idx on public.profiles (is_public) where is_public;
+create unique index if not exists profiles_unsubscribe_token_idx
+  on public.profiles (unsubscribe_token);
 
 alter table public.profiles enable row level security;
 
@@ -472,6 +499,87 @@ create trigger payments_on_status_change
   for each row execute function public.handle_payment_status_change();
 
 -- ----------------------------------------------------------------------------
+-- TABLE : submission_log (anti-spam des formulaires publics)
+-- ----------------------------------------------------------------------------
+-- La RLS autorise l'insertion anonyme sur tasks/workers/applications/
+-- connection_requests. Sans frein, un script pourrait inonder la base et la
+-- boîte de courriels de l'opérateur. Ce journal est INVISIBLE au public
+-- (RLS activée, aucune politique) : seule la fonction `claim_submission_slot`
+-- l'atteint, en security definer.
+create table if not exists public.submission_log (
+  id          bigserial primary key,
+  kind        text not null,
+  -- Empreinte de l'auteur : le courriel normalisé. Pas l'IP — c'est un
+  -- renseignement personnel au sens de la Loi 25, et le courriel est de
+  -- toute façon déjà collecté par le formulaire.
+  fingerprint text not null,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists submission_log_lookup_idx
+  on public.submission_log (kind, fingerprint, created_at desc);
+
+alter table public.submission_log enable row level security;
+-- Aucune politique : illisible et non modifiable, même avec la clé anon.
+
+-- Réserve un jeton de soumission, ou renvoie false si le quota est dépassé.
+-- Quota et fenêtre sont codés en dur : la fonction est exécutable par `anon`,
+-- et un appelant libre de choisir sa limite n'aurait plus de limite.
+create or replace function public.claim_submission_slot(
+  p_kind        text,
+  p_fingerprint text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_window interval := interval '1 hour';
+  v_max    int;
+  v_key    text;
+  v_count  int;
+begin
+  v_key := lower(btrim(coalesce(p_fingerprint, '')));
+  if v_key = '' then
+    return true;
+  end if;
+
+  v_max := case p_kind
+             when 'task'        then 5
+             when 'worker'      then 3
+             when 'application' then 15  -- postuler beaucoup est LÉGITIME
+             when 'connection'  then 5
+             else 5
+           end;
+
+  select count(*) into v_count
+    from public.submission_log
+   where kind = p_kind
+     and fingerprint = v_key
+     and created_at > now() - v_window;
+
+  if v_count >= v_max then
+    return false;
+  end if;
+
+  insert into public.submission_log (kind, fingerprint)
+  values (p_kind, v_key);
+
+  -- Purge opportuniste : le journal ne sert qu'à la fenêtre glissante.
+  if random() < 0.01 then
+    delete from public.submission_log
+     where created_at < now() - interval '7 days';
+  end if;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.claim_submission_slot(text, text)
+  to anon, authenticated;
+
+-- ----------------------------------------------------------------------------
 -- Fonctions SECURITY DEFINER : vérifications croisées tasks ↔ applications
 -- sans déclencher la RLS (évite la récursion infinie entre politiques).
 -- ----------------------------------------------------------------------------
@@ -503,6 +611,118 @@ $$;
 
 grant execute on function public.user_owns_task(uuid) to authenticated;
 grant execute on function public.user_applied_to_task(uuid) to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- Notifications : désabonnement et sélection des destinataires
+-- ----------------------------------------------------------------------------
+-- Traiter un désabonnement sans exposer les tables. Le rôle `anon` ne peut ni
+-- lire ni modifier `workers`/`profiles` : cette fonction est la seule porte,
+-- et elle ne renvoie qu'un booléen — jamais le courriel associé au jeton.
+create or replace function public.unsubscribe_by_token(p_token uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_hit boolean := false;
+begin
+  if p_token is null then
+    return false;
+  end if;
+
+  update public.workers set notify_enabled = false
+   where unsubscribe_token = p_token;
+  if found then v_hit := true; end if;
+
+  update public.profiles set notify_enabled = false
+   where unsubscribe_token = p_token;
+  if found then v_hit := true; end if;
+
+  return v_hit;
+end;
+$$;
+
+grant execute on function public.unsubscribe_by_token(uuid) to anon, authenticated;
+
+-- Destinataires d'une alerte « nouvelle tâche » : les deux viviers réunis,
+-- dédoublonnés par courriel, limités aux personnes joignables ET consentantes.
+-- SECURITY DEFINER car elle lit des coordonnées privées : accordée au seul
+-- `service_role`, jamais à `anon`.
+create or replace function public.workers_to_notify(
+  p_city     text,
+  p_category text
+)
+returns table (
+  name              text,
+  email             text,
+  city              text,
+  skills            text,
+  unsubscribe_token uuid
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with accounts as (
+    select p.full_name as name, p.email, p.city, p.skills, p.unsubscribe_token
+      from public.profiles p
+     where p.role = 'worker'
+       and p.notify_enabled
+       and coalesce(btrim(p.email), '') <> ''
+  ),
+  forms as (
+    select w.name, w.email, w.city, w.skills, w.unsubscribe_token
+      from public.workers w
+     where w.notify_enabled
+       and coalesce(btrim(w.email), '') <> ''
+       and not exists (
+         select 1 from accounts a where lower(a.email) = lower(w.email)
+       )
+  ),
+  pool as (
+    select * from accounts
+    union all
+    select * from forms
+  ),
+  -- Mots significatifs de la catégorie. Le découpage sur les non-lettres
+  -- garantit des jetons purement alphabétiques : rien d'interprétable comme
+  -- métacaractère ne peut atteindre la comparaison régulière ci-dessous.
+  category_words as (
+    select w.word
+      from regexp_split_to_table(coalesce(p_category, ''), '[^[:alpha:]]+') as w(word)
+     where length(w.word) >= 5
+       and lower(w.word) <> 'autre'
+  )
+  select pool.name, pool.email, pool.city, pool.skills, pool.unsubscribe_token
+    from pool
+   -- Même ville, OU une compétence qui COMMENCE par un mot de la catégorie.
+   --
+   -- L'ancre de début de mot (\m) est indispensable en français : une simple
+   -- sous-chaîne faisait correspondre « Ménage » à « deMENAGEment » et à
+   -- « aMENAGEment paysager », si bien que tout déménageur recevait les
+   -- alertes de ménage. L'ancre ne porte que sur le DÉBUT du mot, donc les
+   -- pluriels et dérivés (« ménages résidentiels ») correspondent toujours.
+   --
+   -- Le tri fin par distance reste dans lib/matching.ts ; ici on écarte
+   -- seulement les personnes que la tâche ne peut pas intéresser.
+   where lower(btrim(pool.city)) = lower(btrim(p_city))
+      or exists (
+           select 1 from category_words cw
+            where pool.skills ~* ('\m' || cw.word)
+         );
+$$;
+
+-- VERROUILLAGE. En PostgreSQL, `EXECUTE` sur une fonction est accordé à
+-- PUBLIC par défaut : révoquer sur `anon` et `authenticated` ne suffit PAS,
+-- car ces rôles héritent du droit via PUBLIC. Sans la révocation sur PUBLIC
+-- ci-dessous, n'importe qui muni de la clé anon pourrait appeler cette
+-- fonction et extraire la liste des courriels de tous les travailleurs.
+revoke all on function public.workers_to_notify(text, text) from public;
+revoke all on function public.workers_to_notify(text, text) from anon;
+revoke all on function public.workers_to_notify(text, text) from authenticated;
+grant execute on function public.workers_to_notify(text, text) to service_role;
 
 -- ----------------------------------------------------------------------------
 -- Row Level Security : activée partout, avec politiques.

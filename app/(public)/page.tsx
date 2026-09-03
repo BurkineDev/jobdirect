@@ -2,6 +2,28 @@ import { ButtonLink } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { CATEGORIES } from "@/lib/constants";
 import Link from "next/link";
+import {
+  SEO_CATEGORIES,
+  categoryCopy,
+  jsonLd,
+  servicePath,
+  slugify,
+} from "@/lib/seo";
+import { getMarketSnapshot } from "@/lib/market";
+import { siteUrl } from "@/lib/site";
+
+/**
+ * Les six plus grandes villes desservies : elles concentrent l'essentiel de
+ * la demande et reçoivent donc les liens de la page la plus « forte » du site.
+ */
+const HERO_CITIES = [
+  "Montréal",
+  "Québec",
+  "Laval",
+  "Longueuil",
+  "Gatineau",
+  "Sherbrooke",
+] as const;
 
 const STEPS = [
   {
@@ -18,9 +40,48 @@ const STEPS = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const market = await getMarketSnapshot();
+  const base = siteUrl();
+
+  const organization = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "JobDirect",
+    url: base,
+    logo: `${base}/icons/icon-512.png`,
+    description:
+      "Plateforme québécoise de mise en relation entre particuliers et travailleurs journaliers pour des tâches ponctuelles.",
+    areaServed: { "@type": "AdministrativeArea", name: "Québec, Canada" },
+  };
+
+  const website = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "JobDirect",
+    url: base,
+    inLanguage: "fr-CA",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${base}/taches?city={search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLd(organization) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: jsonLd(website) }}
+      />
+
       {/* HERO */}
       <section className="bg-gradient-to-b from-brand-50 to-white">
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 md:grid-cols-2 md:py-20">
@@ -53,6 +114,28 @@ export default function HomePage() {
                 Je cherche du travail
               </ButtonLink>
             </div>
+            {/* Preuve de liquidité : de vrais compteurs, affichés seulement
+                s'ils sont flatteurs. Un « 0 personne inscrite » ferait plus de
+                mal que son absence. */}
+            {(market.totalWorkers > 0 || market.totalTasks > 0) && (
+              <div className="mt-6 flex flex-wrap items-center gap-2">
+                {market.totalWorkers > 0 && (
+                  <Badge tone="bg-green-100 text-green-800 ring-green-200">
+                    {market.totalWorkers} personne
+                    {market.totalWorkers > 1 ? "s" : ""} disponible
+                    {market.totalWorkers > 1 ? "s" : ""} au Québec
+                  </Badge>
+                )}
+                {market.totalTasks > 0 && (
+                  <Badge tone="bg-brand-100 text-brand-800 ring-brand-200">
+                    {market.totalTasks} tâche
+                    {market.totalTasks > 1 ? "s" : ""} ouverte
+                    {market.totalTasks > 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </div>
+            )}
+
             <p className="mt-4 text-sm text-gray-500">
               Gratuit · Sans engagement ·{" "}
               <Link
@@ -139,6 +222,62 @@ export default function HomePage() {
               </Link>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* SERVICES PAR VILLE — maillage interne vers les pages qui se classent */}
+      <section className="mx-auto max-w-6xl px-4 py-16">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-ink">
+              Nos services près de chez vous
+            </h2>
+            <p className="mt-2 text-gray-600">
+              Choisissez votre ville et le type d&apos;aide dont vous avez
+              besoin.
+            </p>
+          </div>
+          <Link
+            href="/services"
+            className="text-sm font-semibold text-brand-600 hover:underline"
+          >
+            Toutes les villes →
+          </Link>
+        </div>
+
+        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {HERO_CITIES.map((city) => {
+            const workers = market.workersByCity[city] ?? 0;
+            return (
+              <div
+                key={city}
+                className="rounded-2xl border border-gray-200 bg-white p-6"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="text-lg font-semibold text-ink">{city}</h3>
+                  {workers > 0 && (
+                    <span className="text-xs font-medium text-green-700">
+                      {workers} dispo
+                    </span>
+                  )}
+                </div>
+                <ul className="mt-3 space-y-1.5">
+                  {SEO_CATEGORIES.slice(0, 5).map((category) => (
+                    <li key={category}>
+                      <Link
+                        href={servicePath(
+                          `${slugify(category)}-${slugify(city)}`,
+                        )}
+                        className="text-sm text-gray-600 hover:text-brand-600 hover:underline"
+                      >
+                        {categoryCopy(category).h1} à {city}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </section>
 

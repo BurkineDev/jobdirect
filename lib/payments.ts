@@ -4,9 +4,9 @@ import {
   connectionFee,
   getStripe,
   isStripeEnabled,
-  siteUrl,
   toCents,
 } from "./stripe";
+import { requestSiteUrl } from "./site";
 
 /**
  * Création des sessions de paiement Stripe.
@@ -39,6 +39,8 @@ export async function createConnectionCheckout(
   const admin = createAdminClient();
   if (!stripe || !admin || !isStripeEnabled()) return null;
 
+  // Retour vers l'origine réelle du visiteur (voir lib/site.ts).
+  const origin = await requestSiteUrl();
   const amount = connectionFee();
   const worker = input.workerName || "un travailleur";
 
@@ -68,8 +70,8 @@ export async function createConnectionCheckout(
         kind: "connection",
         connection_request_id: input.requestId,
       },
-      success_url: `${siteUrl()}/embaucher/merci?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl()}/embaucher/${input.workerId}?paiement=annule`,
+      success_url: `${origin}/embaucher/merci?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/embaucher/${input.workerId}?paiement=annule`,
     });
 
     if (!session.url) return null;

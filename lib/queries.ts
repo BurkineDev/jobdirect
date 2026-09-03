@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_rethrow } from "next/navigation";
 import { createClient } from "./supabase/server";
 import type {
   Application,
@@ -39,35 +40,48 @@ export async function getActiveTasks(filters: {
   city?: string;
   category?: string;
 }): Promise<PublicTask[]> {
-  const supabase = await createClient();
-  let query = supabase
-    .from("public_tasks")
-    .select(PUBLIC_TASK_COLUMNS)
-    .order("created_at", { ascending: false });
+  try {
+    const supabase = await createClient();
+    let query = supabase
+      .from("public_tasks")
+      .select(PUBLIC_TASK_COLUMNS)
+      .order("created_at", { ascending: false });
 
-  if (filters.city) query = query.eq("city", filters.city);
-  if (filters.category) query = query.eq("category", filters.category);
+    if (filters.city) query = query.eq("city", filters.city);
+    if (filters.category) query = query.eq("category", filters.category);
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("getActiveTasks error", error);
+    const { data, error } = await query;
+    if (error) {
+      console.error("getActiveTasks error", error);
+      return [];
+    }
+    return (data ?? []) as PublicTask[];
+  } catch (error) {
+    // Une liste vide vaut mieux qu'une page en erreur (voir lib/auth.ts).
+    unstable_rethrow(error);
+    console.error("getActiveTasks: Supabase injoignable", error);
     return [];
   }
-  return (data ?? []) as PublicTask[];
 }
 
 export async function getActiveTask(id: string): Promise<PublicTask | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("public_tasks")
-    .select(PUBLIC_TASK_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
-  if (error) {
-    console.error("getActiveTask error", error);
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("public_tasks")
+      .select(PUBLIC_TASK_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) {
+      console.error("getActiveTask error", error);
+      return null;
+    }
+    return (data as PublicTask) ?? null;
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("getActiveTask: Supabase injoignable", error);
     return null;
   }
-  return (data as PublicTask) ?? null;
 }
 
 // --- Répertoire PUBLIC des travailleurs (via la vue public_workers) ---------
@@ -78,29 +92,43 @@ const PUBLIC_WORKER_COLUMNS =
 export async function getPublicWorkers(filters: {
   city?: string;
 }): Promise<PublicWorker[]> {
-  const supabase = await createClient();
-  let query = supabase
-    .from("public_workers")
-    .select(PUBLIC_WORKER_COLUMNS)
-    .order("created_at", { ascending: false });
-  if (filters.city) query = query.eq("city", filters.city);
+  try {
+    const supabase = await createClient();
+    let query = supabase
+      .from("public_workers")
+      .select(PUBLIC_WORKER_COLUMNS)
+      .order("created_at", { ascending: false });
+    if (filters.city) query = query.eq("city", filters.city);
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("getPublicWorkers error", error);
+    const { data, error } = await query;
+    if (error) {
+      console.error("getPublicWorkers error", error);
+      return [];
+    }
+    return (data ?? []) as PublicWorker[];
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("getPublicWorkers: Supabase injoignable", error);
     return [];
   }
-  return (data ?? []) as PublicWorker[];
 }
 
-export async function getPublicWorker(id: string): Promise<PublicWorker | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("public_workers")
-    .select(PUBLIC_WORKER_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
-  return (data as PublicWorker) ?? null;
+export async function getPublicWorker(
+  id: string,
+): Promise<PublicWorker | null> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("public_workers")
+      .select(PUBLIC_WORKER_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    return (data as PublicWorker) ?? null;
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("getPublicWorker: Supabase injoignable", error);
+    return null;
+  }
 }
 
 // --- Lectures COMPTE utilisateur (via la session authentifiée + RLS) --------
@@ -241,7 +269,14 @@ export async function getNotesByTask(): Promise<Map<string, AdminNote[]>> {
 export type CommissionWithTask = Commission & {
   task: Pick<
     Task,
-    "id" | "title" | "city" | "category" | "status" | "contact_name" | "contact_phone" | "budget_estimate"
+    | "id"
+    | "title"
+    | "city"
+    | "category"
+    | "status"
+    | "contact_name"
+    | "contact_phone"
+    | "budget_estimate"
   > | null;
 };
 
@@ -295,18 +330,18 @@ export async function getWorkerPool(): Promise<WorkerCandidate[]> {
     supabase.from("profiles").select("*").eq("role", "worker"),
   ]);
 
-  const fromForms: WorkerCandidate[] = ((workersRes.data ?? []) as Worker[]).map(
-    (w) => ({
-      key: `w_${w.id}`,
-      name: w.name,
-      phone: w.phone,
-      email: w.email,
-      city: w.city,
-      skills: w.skills,
-      availability: w.availability,
-      source: "formulaire",
-    }),
-  );
+  const fromForms: WorkerCandidate[] = (
+    (workersRes.data ?? []) as Worker[]
+  ).map((w) => ({
+    key: `w_${w.id}`,
+    name: w.name,
+    phone: w.phone,
+    email: w.email,
+    city: w.city,
+    skills: w.skills,
+    availability: w.availability,
+    source: "formulaire",
+  }));
   const fromAccounts: WorkerCandidate[] = (
     (profilesRes.data ?? []) as Profile[]
   ).map((p) => ({

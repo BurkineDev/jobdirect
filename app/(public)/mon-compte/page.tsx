@@ -8,8 +8,15 @@ import { RoleChooser } from "@/components/auth/RoleChooser";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Mon tableau de bord" };
 
-export default async function MonComptePage() {
-  const profile = await getCurrentProfile();
+export default async function MonComptePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mdp?: string }>;
+}) {
+  const [profile, params] = await Promise.all([
+    getCurrentProfile(),
+    searchParams,
+  ]);
   if (!profile) redirect("/connexion?redirect=/mon-compte");
 
   return (
@@ -22,6 +29,17 @@ export default async function MonComptePage() {
           Bonjour, {profile.full_name || profile.email}
         </h1>
       </header>
+
+      {/* Confirmation après une réinitialisation réussie : sans elle, la
+          personne atterrit sur son tableau de bord sans savoir si le
+          changement a bien été pris en compte. */}
+      {params.mdp === "change" && (
+        <div className="mb-8 rounded-xl border border-green-200 bg-green-50 p-4">
+          <p className="text-sm font-medium text-green-900">
+            Votre mot de passe a été modifié. Vous êtes maintenant connecté.
+          </p>
+        </div>
+      )}
 
       {!profile.role_confirmed && <RoleChooser />}
 

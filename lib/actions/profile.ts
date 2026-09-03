@@ -1,8 +1,9 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getString, isPhone } from "@/lib/validation";
+import { MARKET_TAG } from "@/lib/market";
 import type { FormState } from "@/lib/types";
 
 /** Mise à jour du profil de l'utilisateur connecté. */
@@ -55,5 +56,10 @@ export async function updateProfile(
   }
 
   revalidatePath("/mon-compte");
+  // Ville, compétences et droit de retrait alimentent `public_workers`.
+  // `updateTag` est ici une exigence de conformité : quand un travailleur
+  // décoche « profil public », il doit disparaître du répertoire sur-le-champ,
+  // pas au prochain rafraîchissement du cache (Loi 25, droit de retrait).
+  updateTag(MARKET_TAG);
   return { status: "success", message: "Profil mis à jour." };
 }

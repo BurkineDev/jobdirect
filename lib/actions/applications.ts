@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getString, isEmail, isPhone } from "@/lib/validation";
+import { RATE_LIMIT_MESSAGE, claimSubmissionSlot } from "@/lib/submissions";
+import { after } from "next/server";
+import { notifyNewApplication } from "@/lib/notify";
 import type { FormState } from "@/lib/types";
 
 /** Candidature « Je suis disponible pour cette tâche ». */
@@ -30,6 +33,12 @@ export async function createApplication(
       message: "Veuillez corriger les champs indiqués.",
       fieldErrors,
     };
+  }
+
+  // Quota volontairement large (15/h) : postuler à beaucoup de tâches est le
+  // comportement NORMAL d'un travailleur journalier actif, pas un abus.
+  if (!(await claimSubmissionSlot("application", email))) {
+    return { status: "error", message: RATE_LIMIT_MESSAGE };
   }
 
   const supabase = await createClient();
@@ -73,6 +82,18 @@ export async function createApplication(
   }
 
   revalidatePath("/admin/candidatures");
+
+  // Sans ce courriel, l'employeur ne découvre la candidature qu'en revenant
+  // de lui-même sur le site — c'est-à-dire, le plus souvent, jamais.
+  // `after()` : les courriels partent APRÈS que la réponse soit envoyée.
+  // Sans lui, le visiteur attend l'aller-retour vers Resend avant de voir sa
+  // confirmation — sur l'étape de conversion la plus importante du site.
+  after(() => notifyNewApplication({
+    taskId,
+    applicantName: name,
+    message: message || null,
+  }));
+
   return {
     status: "success",
     message:

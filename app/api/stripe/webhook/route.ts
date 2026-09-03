@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { after } from "next/server";
+import { notifyPaidConnection } from "@/lib/notify";
 
 /**
  * Webhook Stripe — la SEULE source autorisée à marquer un paiement encaissé.
@@ -57,7 +59,12 @@ export async function POST(request: Request) {
 
         // `neq('status','paid')` rend le traitement idempotent : Stripe peut
         // livrer le même événement plusieurs fois.
-        const { error } = await admin
+        //
+        // Le `select()` sert à savoir si CETTE requête a bien fait la
+        // transition : elle ne renvoie une ligne que la première fois. C'est
+        // ce qui garantit qu'un événement rejoué n'envoie pas un second
+        // courriel à l'opérateur.
+        const { data: updated, error } = await admin
           .from("payments")
           .update({
             status: "paid",
@@ -67,11 +74,33 @@ export async function POST(request: Request) {
               session.customer_details?.email ?? session.customer_email ?? null,
           })
           .eq("stripe_session_id", session.id)
-          .neq("status", "paid");
+          .neq("status", "paid")
+          .select("kind, connection_request_id")
+          .maybeSingle();
 
         if (error) {
           console.error("Webhook Stripe : mise à jour du paiement", error);
           return new Response("Erreur de base de données.", { status: 500 });
+        }
+
+        // Argent encaissé, promesse due : c'est l'alerte à ne jamais manquer.
+        // Elle part APRÈS la mise à jour, car le trigger SQL vient de
+        // propager le montant vers la demande de mise en relation.
+        const paid = updated as {
+          kind: string;
+          connection_request_id: string | null;
+        } | null;
+        const paidRequestId =
+          paid?.kind === "connection" ? paid.connection_request_id : null;
+        if (paidRequestId) {
+          // Après la réponse : Stripe réessaie un webhook trop lent, il ne
+          // doit pas attendre l'envoi du courriel pour recevoir son 200.
+          //
+          // L'identifiant est capturé dans une constante : le rétrécissement
+          // de type opéré par le `if` ne survit pas à l'entrée dans un
+          // callback différé (TypeScript ne peut pas garantir que la
+          // propriété n'aura pas changé d'ici son exécution).
+          after(() => notifyPaidConnection(paidRequestId));
         }
         break;
       }

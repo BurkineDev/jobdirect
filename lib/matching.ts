@@ -64,14 +64,25 @@ export function suggestMatches(
   limit = 6,
 ): Match[] {
   const taskCoord = coordsFor(task.city);
+  // Mots de la catégorie retenus pour le rapprochement. Seuil à 5 lettres :
+  // écarte les mots trop génériques (« aide ») qui rapprocheraient à peu près
+  // n'importe quoi. « autre » est exclu — cette catégorie fourre-tout ne doit
+  // déclencher aucune correspondance de compétence.
   const categoryWords = normalize(task.category)
     .split(/[^a-z0-9]+/)
-    .filter((w) => w.length > 3);
+    .filter((w) => w.length >= 5 && w !== "autre");
 
   return pool
     .map((candidate) => {
+      const skills = normalize(candidate.skills);
+      // Ancre de DÉBUT de mot, et non `includes()`. En français, la
+      // sous-chaîne produisait des faux positifs silencieux : « menage »
+      // apparaît dans « demenagement » et « amenagement », si bien qu'un
+      // déménageur était suggéré pour une tâche de ménage. L'ancre ne porte
+      // que sur le début du mot : « menages residentiels » correspond
+      // toujours (pluriels et dérivés).
       const skillHit = categoryWords.some((w) =>
-        normalize(candidate.skills).includes(w),
+        new RegExp(`\\b${w}`).test(skills),
       );
       const workerCoord = coordsFor(candidate.city);
 

@@ -6,6 +6,7 @@ import type { TaskWithCount } from "@/lib/queries";
 import { TaskStatusSelect } from "./TaskStatusSelect";
 import { NoteForm } from "./NoteForm";
 import { DeleteNoteButton } from "./DeleteNoteButton";
+import { DeleteTaskButton } from "./DeleteTaskButton";
 
 export function AdminTaskCard({
   task,
@@ -34,7 +35,10 @@ export function AdminTaskCard({
             {task.application_count} candidature
             {task.application_count > 1 ? "s" : ""}
           </span>
-          <TaskStatusSelect taskId={task.id} status={task.status} />
+          <div className="flex flex-wrap items-center gap-3">
+            <TaskStatusSelect taskId={task.id} status={task.status} />
+            <DeleteTaskButton taskId={task.id} title={task.title} />
+          </div>
         </div>
       </div>
 
